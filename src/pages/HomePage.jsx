@@ -58,7 +58,7 @@ const HomePage = () => {
             originalPrice: 11000,
             image: "/placeholder.svg?height=200&width=200",
             sold: 20,
-            arIosUrl: "https://example.com/ar/ios/product1.usdz",
+            arIosUrl: "https://github.com/sanamxgit/untitled.usdz",
             arAndroidUrl: "https://example.com/ar/android/product1.glb",
           }))
         setBrowseProducts(mockBrowseProducts)

@@ -1,0 +1,111 @@
+.qr-code-generator {
+  background-color: #f7f9fc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 20px;
+  margin-top: 20px;
+  margin-bottom: 20px;
+}
+
+.qr-code-generator h3 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  font-size: 18px;
+  color: #333;
+}
+
+.qr-description {
+  color: #666;
+  font-size: 14px;
+  margin-bottom: 20px;
+}
+
+.qr-tabs {
+  display: flex;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.qr-tab {
+  padding: 10px 20px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-weight: 500;
+  color: #666;
+  transition: all 0.3s;
+}
+
+.qr-tab.active {
+  color: #3f51b5;
+  border-bottom-color: #3f51b5;
+}
+
+.qr-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+@media (min-width: 768px) {
+  .qr-content {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+}
+
+.qr-display {
+  background-color: white;
+  padding: 15px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.qr-instructions {
+  flex: 1;
+  padding: 15px;
+}
+
+.qr-instructions h4 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  font-size: 16px;
+  color: #333;
+}
+
+.qr-instructions ol {
+  padding-left: 20px;
+  color: #555;
+  font-size: 14px;
+}
+
+.qr-instructions li {
+  margin-bottom: 10px;
+}
+
+.qr-download-btn {
+  display: block;
+  margin-top: 20px;
+  padding: 10px 20px;
+  background-color: #3f51b5;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.qr-download-btn:hover {
+  background-color: #303f9f;
+}
+
+.qr-code-generator.empty {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100px;
+  color: #666;
+} 

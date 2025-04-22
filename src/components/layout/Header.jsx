@@ -49,6 +49,7 @@ const Header = () => {
             <Link to="/contact">Contact</Link>
           </div>
         </div>
+        
       </div>
 
       <div className="main-header">
@@ -57,7 +58,6 @@ const Header = () => {
             <Link to="/" className="logo">
               LOGO
             </Link>
-
             <div className="search-container">
               <form onSubmit={handleSearch} className="search-form">
                 <div className="category-select">

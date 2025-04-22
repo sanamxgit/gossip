@@ -123,7 +123,7 @@ const CategoryPage = () => {
                   <div className="price-input">
                     <label>Min</label>
                     <div className="input-with-prefix">
-                      <span>$</span>
+                      <span>Rs.</span>
                       <input
                         type="number"
                         value={filters.priceRange[0]}
@@ -136,7 +136,7 @@ const CategoryPage = () => {
                   <div className="price-input">
                     <label>Max</label>
                     <div className="input-with-prefix">
-                      <span>$</span>
+                      <span>Rs.</span>
                       <input
                         type="number"
                         value={filters.priceRange[1]}

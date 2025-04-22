@@ -59,11 +59,11 @@ const OrderHistoryPage = () => {
   };
   
   const formatPrice = (price) => {
-    return new Intl.NumberFormat('en-US', {
+    return new Intl.NumberFormat('en-IN', {
       style: 'currency',
-      currency: 'USD',
+      currency: 'INR',
       minimumFractionDigits: 2
-    }).format(price / 100);
+    }).format(price);
   };
   
   if (loading) {

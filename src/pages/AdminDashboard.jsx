@@ -832,7 +832,7 @@ const AdminDashboard = () => {
                       <tr key={product.id}>
                         <td>{product.id}</td>
                         <td>{product.title}</td>
-                        <td>${(product.price / 100).toFixed(2)}</td>
+                        <td>Rs. {(product.price).toFixed(2)}</td>
                         <td>{product.seller}</td>
                         <td>{product.category}</td>
                         <td>{formatDate(product.createdAt)}</td>
@@ -1069,7 +1069,7 @@ const AdminDashboard = () => {
                     >
                       {products.map(product => (
                         <option key={product.id} value={product.id}>
-                          {product.title} - ${(product.price / 100).toFixed(2)}
+                          {product.title} - Rs. {(product.price).toFixed(2)}
                         </option>
                       ))}
                     </select>
@@ -1082,7 +1082,7 @@ const AdminDashboard = () => {
                       {productsData.productIds.map(id => {
                         const product = products.find(p => p.id === id)
                         return product ? (
-                          <li key={id}>{product.title} - ${(product.price / 100).toFixed(2)}</li>
+                          <li key={id}>{product.title} - Rs. {(product.price).toFixed(2)}</li>
                         ) : null
                       })}
                     </ul>

@@ -1,22 +1,29 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { useNavigate } from "react-router-dom"
+import React, { useState, useEffect } from "react"
+import { Link, useNavigate } from "react-router-dom"
 import { useAuth } from "../contexts/AuthContext"
+import productService from '../services/api/productService'
 import "./SellerDashboard.css"
+import { FaBox, FaShoppingBag, FaChartBar, FaCog, FaPowerOff, FaEdit, FaTrash, FaEye, FaUpload } from 'react-icons/fa'
+import orderService from '../services/api/orderService'
+import authService from '../services/api/authService'
+import modelUploadService from '../services/api/modelUploadService'
+import ModelPreview from '../components/ar/ModelPreview'
 
 const SellerDashboard = () => {
-  const { user } = useAuth()
+  const { user, isAuthenticated, loading, logout } = useAuth()
   const navigate = useNavigate()
+  const [activeTab, setActiveTab] = useState("dashboard")
   const [products, setProducts] = useState([])
   const [orders, setOrders] = useState([])
-  const [stats, setStats] = useState({
+  const [users, setUser] = useState([])
+  const [statistics, setStatistics] = useState({
     totalSales: 0,
-    totalOrders: 0,
-    pendingOrders: 0,
     totalProducts: 0,
+    pendingOrders: 0,
+    revenue: 0
   })
-  const [activeTab, setActiveTab] = useState("products")
   const [isLoading, setIsLoading] = useState(true)
   const [showProductForm, setShowProductForm] = useState(false)
   const [productFormData, setProductFormData] = useState({
@@ -26,72 +33,110 @@ const SellerDashboard = () => {
     description: "",
     category: "",
     stock: "",
+    images: [],
     arIosUrl: "",
     arAndroidUrl: "",
   })
+  const [previewImages, setPreviewImages] = useState([])
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [errorMessage, setErrorMessage] = useState("")
+
+  // Handle 3D model upload
+  const [modelFiles, setModelFiles] = useState({
+    ios: null,
+    android: null
+  })
+  const [modelPreviews, setModelPreviews] = useState({
+    ios: null,
+    android: null
+  })
+  const [modelUploading, setModelUploading] = useState({
+    ios: false,
+    android: false
+  })
+  const [modelErrors, setModelErrors] = useState({
+    ios: null,
+    android: null
+  })
 
   useEffect(() => {
-    // Check if user is a seller
-    if (!user || user.role !== "seller") {
+    // Check if user is logged in and is a seller
+    if (!loading && !isAuthenticated) {
       navigate("/login")
       return
     }
 
-    // Fetch seller data
-    fetchSellerData()
-  }, [user, navigate])
+    if (!loading && isAuthenticated && user && user.role !== "seller") {
+      navigate("/")
+      return
+    }
+
+    // Load seller data
+    if (isAuthenticated && user && user.role === "seller") {
+      fetchSellerData()
+    }
+  }, [isAuthenticated, loading, user, navigate])
 
   const fetchSellerData = async () => {
     setIsLoading(true)
     try {
-      // In a real app, fetch data from API
-      // Simulate API calls
-      setTimeout(() => {
-        // Mock products
-        const mockProducts = Array(5)
-          .fill()
-          .map((_, index) => ({
-            id: index + 1,
-            title: `Product ${index + 1}`,
-            price: 9999,
-            description: "Product description goes here.",
-            category: "Home & Decor",
-            stock: 20,
-            sold: 10,
-            image: "/placeholder.svg?height=100&width=100",
-            arIosUrl: "https://example.com/ar/ios/product.usdz",
-            arAndroidUrl: "https://example.com/ar/android/product.glb",
-            createdAt: new Date(Date.now() - Math.random() * 10000000000).toISOString(),
-          }))
-        setProducts(mockProducts)
+      // Check if user is authenticated and is a seller
+      const userData = await authService.getCurrentUser()
+      if (!userData || userData.role !== 'seller') {
+        throw new Error('Not authenticated as a seller')
+      }
+      setUser(userData)
 
-        // Mock orders
-        const mockOrders = Array(3)
-          .fill()
-          .map((_, index) => ({
-            id: index + 1,
-            customer: `Customer ${index + 1}`,
-            products: mockProducts.slice(0, Math.floor(Math.random() * 3) + 1),
-            total: (Math.floor(Math.random() * 5) + 1) * 9999,
-            status: ["Pending", "Shipped", "Delivered"][Math.floor(Math.random() * 3)],
-            date: new Date(Date.now() - Math.random() * 10000000000).toISOString(),
-          }))
-        setOrders(mockOrders)
+      // Fetch products
+      const productsData = await productService.getSellerProducts()
+      setProducts(productsData.products || [])
 
-        // Mock stats
-        setStats({
-          totalSales: mockOrders.reduce((sum, order) => sum + order.total, 0),
-          totalOrders: mockOrders.length,
-          pendingOrders: mockOrders.filter((order) => order.status === "Pending").length,
-          totalProducts: mockProducts.length,
-        })
+      // Fetch orders
+      let ordersData;
+      try {
+        ordersData = await orderService.getSellerOrders()
+        setOrders(ordersData.orders || [])
+      } catch (error) {
+        console.error("Error fetching orders:", error)
+        // Fallback to mock data if API is not available
+        setOrders(getMockOrders())
+      }
 
-        setIsLoading(false)
-      }, 1000)
+      // Set statistics
+      setStatistics({
+        totalSales: productsData.products ? productsData.products.reduce((total, product) => total + (product.salesCount || 0), 0) : 0,
+        totalProducts: productsData.products ? productsData.products.length : 0,
+        pendingOrders: ordersData && ordersData.orders ? ordersData.orders.filter(order => order.status === 'PENDING').length : 0,
+        revenue: ordersData && ordersData.orders ? ordersData.orders.reduce((total, order) => total + (order.total || 0), 0) : 0
+      })
     } catch (error) {
       console.error("Error fetching seller data:", error)
+      // Use mock data if API fails
+      setUser({ name: "Seller Demo", email: "seller@example.com", sellerProfile: { storeName: "Demo Store" } })
+      setProducts([
+        { _id: "1", title: "Sample Product 1", price: 2999, stock: 10, images: ["/placeholder.svg"], category: { name: "Sample Category" } },
+        { _id: "2", title: "Sample Product 2", price: 4999, stock: 5, images: ["/placeholder.svg"], category: { name: "Sample Category" } }
+      ])
+      setOrders(getMockOrders())
+      setStatistics({
+        totalSales: 12,
+        totalProducts: 2,
+        pendingOrders: 3,
+        revenue: 125075
+      })
+    } finally {
       setIsLoading(false)
     }
+  }
+
+  const getMockOrders = () => {
+    return Array(5).fill().map((_, index) => ({
+      id: `order-${index + 1}`,
+      customer: `Customer ${index + 1}`,
+      date: new Date(Date.now() - Math.random() * 10000000000).toISOString(),
+      total: Math.floor(Math.random() * 10000) + 1000,
+      status: ['Pending', 'Processing', 'Shipped', 'Delivered'][Math.floor(Math.random() * 4)]
+    }))
   }
 
   const handleTabChange = (tab) => {
@@ -100,105 +145,259 @@ const SellerDashboard = () => {
 
   const handleAddProduct = () => {
     setProductFormData({
-      id: null,
       title: "",
       price: "",
       description: "",
       category: "",
       stock: "",
+      images: [],
       arIosUrl: "",
-      arAndroidUrl: "",
+      arAndroidUrl: ""
     })
+    setPreviewImages([])
     setShowProductForm(true)
   }
 
-  const handleEditProduct = (product) => {
-    setProductFormData({
-      id: product.id,
-      title: product.title,
-      price: product.price / 100, // Convert cents to dollars for form
-      description: product.description,
-      category: product.category,
-      stock: product.stock,
-      arIosUrl: product.arIosUrl,
-      arAndroidUrl: product.arAndroidUrl,
-    })
-    setShowProductForm(true)
+  const handleEditProduct = async (productId) => {
+    try {
+      const product = await productService.getProductById(productId)
+      setProductFormData({
+        id: product._id,
+        title: product.title || "",
+        price: product.price || "",
+        description: product.description || "",
+        category: product.category?._id || product.category || "",
+        stock: product.stock || "",
+        images: product.images || [],
+        arIosUrl: product.arModels?.ios || "",
+        arAndroidUrl: product.arModels?.android || ""
+      })
+      setPreviewImages(product.images || [])
+      setShowProductForm(true)
+    } catch (error) {
+      console.error("Error fetching product:", error)
+      alert("Error loading product data. Please try again.")
+    }
   }
 
-  const handleDeleteProduct = (productId) => {
-    if (window.confirm("Are you sure you want to delete this product?")) {
-      // In a real app, make API call to delete product
-      setProducts((prevProducts) => prevProducts.filter((p) => p.id !== productId))
+  const handleDeleteProduct = async (productId) => {
+    if (window.confirm("Are you sure you want to delete this product? This action cannot be undone.")) {
+      try {
+        await productService.deleteProduct(productId)
+        // Remove product from state
+        setProducts(products.filter(product => product._id !== productId))
+        // Update statistics
+        setStatistics(prev => ({
+          ...prev,
+          totalProducts: prev.totalProducts - 1
+        }))
+        alert("Product deleted successfully!")
+      } catch (error) {
+        console.error("Error deleting product:", error)
+        alert("Error deleting product. Please try again.")
+      }
     }
   }
 
   const handleProductFormChange = (e) => {
     const { name, value } = e.target
-    setProductFormData((prev) => ({
+    setProductFormData(prev => ({
       ...prev,
-      [name]: value,
+      [name]: value
     }))
   }
 
-  const handleProductFormSubmit = (e) => {
-    e.preventDefault()
+  const handleImageUpload = (e) => {
+    const files = Array.from(e.target.files)
+    if (files.length === 0) return
 
-    // Validate form
-    if (!productFormData.title || !productFormData.price || !productFormData.stock) {
-      alert("Please fill in all required fields")
+    // Limit to 5 images total
+    const totalImages = productFormData.images.length + files.length
+    if (totalImages > 5) {
+      alert("You can upload a maximum of 5 images.")
       return
     }
 
-    // Convert price to cents
-    const priceInCents = Math.round(Number.parseFloat(productFormData.price) * 100)
+    // Create preview URLs and add files to form data
+    const newPreviewImages = [...previewImages]
+    const newImages = [...productFormData.images]
 
-    if (productFormData.id) {
-      // Update existing product
-      setProducts((prevProducts) =>
-        prevProducts.map((p) =>
-          p.id === productFormData.id
-            ? {
-                ...p,
-                title: productFormData.title,
-                price: priceInCents,
-                description: productFormData.description,
-                category: productFormData.category,
-                stock: Number.parseInt(productFormData.stock),
-                arIosUrl: productFormData.arIosUrl,
-                arAndroidUrl: productFormData.arAndroidUrl,
-              }
-            : p,
-        ),
-      )
-    } else {
-      // Add new product
-      const newProduct = {
-        id: Date.now(),
-        title: productFormData.title,
-        price: priceInCents,
-        description: productFormData.description,
-        category: productFormData.category,
-        stock: Number.parseInt(productFormData.stock),
-        sold: 0,
-        image: "/placeholder.svg?height=100&width=100",
-        arIosUrl: productFormData.arIosUrl,
-        arAndroidUrl: productFormData.arAndroidUrl,
-        createdAt: new Date().toISOString(),
-      }
+    files.forEach(file => {
+      // Create preview URL
+      const previewUrl = URL.createObjectURL(file)
+      newPreviewImages.push(previewUrl)
 
-      setProducts((prevProducts) => [...prevProducts, newProduct])
+      // Add file to form data
+      newImages.push(file)
+    })
+
+    setPreviewImages(newPreviewImages)
+    setProductFormData(prev => ({
+      ...prev,
+      images: newImages
+    }))
+  }
+
+  const handleRemoveImage = (index) => {
+    // Remove image from preview and form data
+    const newPreviewImages = [...previewImages]
+    const newImages = [...productFormData.images]
+
+    newPreviewImages.splice(index, 1)
+    newImages.splice(index, 1)
+
+    setPreviewImages(newPreviewImages)
+    setProductFormData(prev => ({
+      ...prev,
+      images: newImages
+    }))
+  }
+
+  const handleModelUpload = async (e, platform) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Validate file type
+    const validTypes = {
+      ios: ['.usdz', 'model/vnd.usdz+zip', 'application/octet-stream'],
+      android: ['.glb', '.gltf', 'model/gltf-binary', 'model/gltf+json', 'application/octet-stream']
+    };
+
+    const fileExtension = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+    const isValidType = platform === 'ios' 
+      ? validTypes.ios.some(type => fileExtension.includes(type) || file.type.includes(type))
+      : validTypes.android.some(type => fileExtension.includes(type) || file.type.includes(type));
+
+    if (!isValidType) {
+      setModelErrors(prev => ({
+        ...prev,
+        [platform]: platform === 'ios' 
+          ? 'Invalid file type. Please upload a USDZ file for iOS.'
+          : 'Invalid file type. Please upload a GLB or GLTF file for Android.'
+      }));
+      return;
     }
 
-    setShowProductForm(false)
+    // Store file for later upload
+    setModelFiles(prev => ({
+      ...prev,
+      [platform]: file
+    }));
+
+    // Create a temporary blob URL for preview
+    const previewUrl = URL.createObjectURL(file);
+    setModelPreviews(prev => ({
+      ...prev,
+      [platform]: previewUrl
+    }));
+
+    // Clear error
+    setModelErrors(prev => ({
+      ...prev,
+      [platform]: null
+    }));
+
+    try {
+      // Start upload to GitHub
+      setModelUploading(prev => ({
+        ...prev,
+        [platform]: true
+      }));
+
+      const modelType = platform === 'ios' ? 'usdz' : 'glb';
+      const uploadResponse = await modelUploadService.uploadModelToGitHub(file, modelType);
+
+      // Update the product form data with the uploaded model URL
+      if (platform === 'ios') {
+        setProductFormData(prev => ({
+          ...prev,
+          arIosUrl: uploadResponse.url
+        }));
+      } else {
+        setProductFormData(prev => ({
+          ...prev,
+          arAndroidUrl: uploadResponse.url
+        }));
+      }
+
+      // Show success message
+      alert(`Successfully uploaded ${platform === 'ios' ? 'iOS' : 'Android'} 3D model to GitHub.`);
+    } catch (error) {
+      setModelErrors(prev => ({
+        ...prev,
+        [platform]: `Error uploading model: ${error.message}`
+      }));
+      console.error(`Error uploading ${platform} model:`, error);
+    } finally {
+      setModelUploading(prev => ({
+        ...prev,
+        [platform]: false
+      }));
+    }
+  };
+
+  const handleProductFormSubmit = async (e) => {
+    e.preventDefault()
+    setErrorMessage("")
+    setIsSubmitting(true)
+
+    try {
+      const formData = {
+        title: productFormData.title,
+        price: parseFloat(productFormData.price),
+        description: productFormData.description,
+        category: productFormData.category,
+        stock: parseInt(productFormData.stock),
+        images: productFormData.images,
+        arModels: {
+          ios: productFormData.arIosUrl,
+          android: productFormData.arAndroidUrl
+        }
+      }
+
+      let response
+      if (productFormData.id) {
+        // Update existing product
+        response = await productService.updateProduct(productFormData.id, formData)
+
+        // Update product in state
+        setProducts(products.map(product =>
+          product._id === productFormData.id ? response : product
+        ))
+
+        alert("Product updated successfully!")
+      } else {
+        // Create new product
+        response = await productService.createProduct(formData)
+
+        // Add new product to state
+        setProducts([...products, response])
+
+        // Update statistics
+        setStatistics(prev => ({
+          ...prev,
+          totalProducts: prev.totalProducts + 1
+        }))
+
+        alert("Product created successfully!")
+      }
+
+      // Close form
+      setShowProductForm(false)
+    } catch (error) {
+      console.error("Error submitting product:", error)
+      setErrorMessage(error.response?.data?.message || "Error saving product. Please try again.")
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const formatPrice = (price) => {
-    return new Intl.NumberFormat("en-US", {
+    return new Intl.NumberFormat("en-NP", {
       style: "currency",
-      currency: "USD",
+      currency: "NRs",
       minimumFractionDigits: 2,
-    }).format(price / 100)
+    }).format(price)
   }
 
   const formatDate = (dateString) => {
@@ -209,219 +408,285 @@ const SellerDashboard = () => {
     })
   }
 
-  if (isLoading) {
+  if (loading || isLoading) {
     return (
       <div className="seller-dashboard loading">
-        <div className="container">
-          <div className="loading-spinner"></div>
-        </div>
+        <div className="loading-spinner"></div>
       </div>
     )
   }
 
   return (
     <div className="seller-dashboard">
-      <div className="container">
-        <div className="dashboard-header">
-          <h1>Seller Dashboard</h1>
-          <p>Welcome back, {user?.username || "Seller"}</p>
-        </div>
-
-        <div className="stats-cards">
-          <div className="stat-card">
-            <div className="stat-value">{formatPrice(stats.totalSales)}</div>
-            <div className="stat-label">Total Sales</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-value">{stats.totalOrders}</div>
-            <div className="stat-label">Total Orders</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-value">{stats.pendingOrders}</div>
-            <div className="stat-label">Pending Orders</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-value">{stats.totalProducts}</div>
-            <div className="stat-label">Total Products</div>
+      <div className="dashboard-sidebar">
+        <div className="sidebar-header">
+          <div className="store-info">
+            <h2>{user?.sellerProfile?.storeName || "Your Store"}</h2>
+            <p className="seller-name">{user?.username}</p>
           </div>
         </div>
 
-        <div className="dashboard-tabs">
+        <nav className="sidebar-nav">
+          <ul>
+            <li className={activeTab === "dashboard" ? "active" : ""}>
+              <button onClick={() => setActiveTab("dashboard")}>
+                <span className="icon"><FaChartBar /></span>
+                Dashboard
+              </button>
+            </li>
+            <li className={activeTab === "products" ? "active" : ""}>
+              <button onClick={() => setActiveTab("products")}>
+                <span className="icon"><FaBox /></span>
+                Products
+              </button>
+            </li>
+            <li className={activeTab === "orders" ? "active" : ""}>
+              <button onClick={() => setActiveTab("orders")}>
+                <span className="icon"><FaShoppingBag /></span>
+                Orders
+              </button>
+            </li>
+            <li className={activeTab === "settings" ? "active" : ""}>
+              <button onClick={() => setActiveTab("settings")}>
+                <span className="icon"><FaCog /></span>
+                Settings
+              </button>
+            </li>
+          </ul>
+        </nav>
+
+        <div className="sidebar-footer">
           <button
-            className={`tab-btn ${activeTab === "products" ? "active" : ""}`}
-            onClick={() => handleTabChange("products")}
+            className="btn-secondary"
+            onClick={() => {
+              logout()
+              navigate("/login")
+            }}
           >
-            Products
-          </button>
-          <button
-            className={`tab-btn ${activeTab === "orders" ? "active" : ""}`}
-            onClick={() => handleTabChange("orders")}
-          >
-            Orders
-          </button>
-          <button
-            className={`tab-btn ${activeTab === "settings" ? "active" : ""}`}
-            onClick={() => handleTabChange("settings")}
-          >
-            Store Settings
+            <FaPowerOff /> Logout
           </button>
         </div>
+      </div>
 
-        <div className="tab-content">
-          {activeTab === "products" && (
-            <div className="products-tab">
-              <div className="tab-header">
-                <h2>Your Products</h2>
-                <button className="add-btn" onClick={handleAddProduct}>
-                  Add New Product
-                </button>
+      <div className="dashboard-content">
+        {activeTab === "dashboard" && (
+          <div className="dashboard-overview">
+            <h1>Dashboard Overview</h1>
+
+            <div className="stats-grid">
+              <div className="stat-card">
+                <div className="stat-value">{statistics.totalSales}</div>
+                <div className="stat-label">Total Sales</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-value">{statistics.totalProducts}</div>
+                <div className="stat-label">Products</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-value">{statistics.pendingOrders}</div>
+                <div className="stat-label">Pending Orders</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-value">{formatPrice(statistics.revenue)}</div>
+                <div className="stat-label">Revenue</div>
+              </div>
+            </div>
+
+            <div className="dashboard-sections">
+              <div className="section">
+                <div className="section-header">
+                  <h2>Recent Orders</h2>
+                  <button className="btn-text" onClick={() => setActiveTab("orders")}>View All</button>
+                </div>
+                <div className="recent-orders">
+                  {orders.slice(0, 3).map(order => (
+                    <div key={order.id} className="order-item">
+                      <div className="order-info">
+                        <div className="order-id">{order.id}</div>
+                        <div className="order-customer">{order.customer}</div>
+                      </div>
+                      <div className="order-details">
+                        <div className="order-date">{formatDate(order.date)}</div>
+                        <div className="order-amount">{formatPrice(order.total)}</div>
+                        <div className={`order-status ${order.status.toLowerCase()}`}>{order.status}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
 
+              <div className="section">
+                <div className="section-header">
+                  <h2>Recent Products</h2>
+                  <button className="btn-text" onClick={() => setActiveTab("products")}>View All</button>
+                </div>
+                <div className="recent-products">
+                  {products.slice(0, 3).map(product => (
+                    <div key={product._id} className="product-item">
+                      <img src={product.images?.[0] || "/placeholder.svg"} alt={product.title} />
+                      <div className="product-info">
+                        <div className="product-title">{product.title}</div>
+                        <div className="product-price">{formatPrice(product.price)}</div>
+                      </div>
+                      <div className="product-stock">
+                        Stock: {product.stock || 0}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "products" && (
+          <div className="dashboard-products">
+            <div className="section-header">
+              <h1>Products</h1>
+              <button className="btn-primary" onClick={handleAddProduct}>Add New Product</button>
+            </div>
+
+            {products.length === 0 ? (
+              <div className="empty-state">
+                <h2>No products yet</h2>
+                <p>Start adding products to your store.</p>
+                <button className="btn-primary" onClick={handleAddProduct}>Add First Product</button>
+              </div>
+            ) : (
               <div className="products-table">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Image</th>
-                      <th>Title</th>
-                      <th>Price</th>
-                      <th>Stock</th>
-                      <th>Sold</th>
-                      <th>Category</th>
-                      <th>Date Added</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {products.map((product) => (
-                      <tr key={product.id}>
-                        <td>
-                          <img
-                            src={product.image || "/placeholder.svg"}
-                            alt={product.title}
-                            className="product-thumbnail"
-                          />
-                        </td>
-                        <td>{product.title}</td>
-                        <td>{formatPrice(product.price)}</td>
-                        <td>{product.stock}</td>
-                        <td>{product.sold}</td>
-                        <td>{product.category}</td>
-                        <td>{formatDate(product.createdAt)}</td>
-                        <td>
-                          <div className="action-buttons">
-                            <button className="edit-btn" onClick={() => handleEditProduct(product)}>
-                              Edit
-                            </button>
-                            <button className="delete-btn" onClick={() => handleDeleteProduct(product.id)}>
-                              Delete
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "orders" && (
-            <div className="orders-tab">
-              <h2>Recent Orders</h2>
-
-              <div className="orders-table">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Order ID</th>
-                      <th>Customer</th>
-                      <th>Products</th>
-                      <th>Total</th>
-                      <th>Status</th>
-                      <th>Date</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {orders.map((order) => (
-                      <tr key={order.id}>
-                        <td>#{order.id}</td>
-                        <td>{order.customer}</td>
-                        <td>{order.products.map((p) => p.title).join(", ")}</td>
-                        <td>{formatPrice(order.total)}</td>
-                        <td>
-                          <span className={`status-badge ${order.status.toLowerCase()}`}>{order.status}</span>
-                        </td>
-                        <td>{formatDate(order.date)}</td>
-                        <td>
-                          <button className="view-btn">View Details</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "settings" && (
-            <div className="settings-tab">
-              <h2>Store Settings</h2>
-
-              <form className="settings-form">
-                <div className="form-group">
-                  <label>Store Name</label>
-                  <input type="text" defaultValue={user?.storeName || "My Store"} />
+                <div className="table-header">
+                  <div className="col-image">Image</div>
+                  <div className="col-title">Product Name</div>
+                  <div className="col-price">Price</div>
+                  <div className="col-stock">Stock</div>
+                  <div className="col-category">Category</div>
+                  <div className="col-actions">Actions</div>
                 </div>
 
+                {products.map(product => (
+                  <div key={product._id} className="table-row">
+                    <div className="col-image">
+                      <img src={product.images?.[0] || "/placeholder.svg"} alt={product.title} />
+                    </div>
+                    <div className="col-title">{product.title}</div>
+                    <div className="col-price">{formatPrice(product.price)}</div>
+                    <div className="col-stock">{product.stock || 0}</div>
+                    <div className="col-category">{product.category?.name || "Uncategorized"}</div>
+                    <div className="col-actions">
+                      <button
+                        className="btn-icon"
+                        onClick={() => handleEditProduct(product._id)}
+                        title="Edit"
+                      >
+                        <FaEdit />
+                      </button>
+                      <button
+                        className="btn-icon delete"
+                        onClick={() => handleDeleteProduct(product._id)}
+                        title="Delete"
+                      >
+                        <FaTrash />
+                      </button>
+                      <Link
+                        to={`/product/${product._id}`}
+                        className="btn-icon"
+                        title="View Product"
+                      >
+                        <FaEye />
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === "orders" && (
+          <div className="dashboard-orders">
+            <h1>Orders</h1>
+
+            {orders.length === 0 ? (
+              <div className="empty-state">
+                <h2>No orders yet</h2>
+                <p>Orders will appear here when customers make purchases.</p>
+              </div>
+            ) : (
+              <div className="orders-table">
+                <div className="table-header">
+                  <div className="col-id">Order ID</div>
+                  <div className="col-customer">Customer</div>
+                  <div className="col-date">Date</div>
+                  <div className="col-total">Total</div>
+                  <div className="col-status">Status</div>
+                  <div className="col-actions">Actions</div>
+                </div>
+
+                {orders.map(order => (
+                  <div key={order.id} className="table-row">
+                    <div className="col-id">{order.id}</div>
+                    <div className="col-customer">{order.customer}</div>
+                    <div className="col-date">{formatDate(order.date)}</div>
+                    <div className="col-total">{formatPrice(order.total)}</div>
+                    <div className="col-status">
+                      <span className={`status-badge ${order.status.toLowerCase()}`}>
+                        {order.status}
+                      </span>
+                    </div>
+                    <div className="col-actions">
+                      <Link
+                        to={`/seller/orders/${order.id}`}
+                        className="btn-icon"
+                        title="View Order"
+                      >
+                        <FaEye />
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === "settings" && (
+          <div className="dashboard-settings">
+            <h1>Store Settings</h1>
+            <div className="settings-form">
+              <div className="form-section">
+                <h2>Store Information</h2>
+                <div className="form-group">
+                  <label>Store Name</label>
+                  <input type="text" value={user?.sellerProfile?.storeName || ""} readOnly />
+                </div>
                 <div className="form-group">
                   <label>Store Description</label>
                   <textarea
-                    rows="4"
-                    defaultValue="Welcome to my store! We sell high-quality products at affordable prices."
+                    value={user?.sellerProfile?.storeDescription || ""}
+                    readOnly
+                    rows="3"
                   ></textarea>
                 </div>
+              </div>
 
+              <div className="form-section">
+                <h2>Contact Information</h2>
                 <div className="form-group">
-                  <label>Store Logo</label>
-                  <div className="logo-upload">
-                    <img src="/placeholder.svg?height=100&width=100" alt="Store Logo" />
-                    <button type="button">Upload New Logo</button>
-                  </div>
+                  <label>Email</label>
+                  <input type="email" value={user?.email || ""} readOnly />
                 </div>
-
                 <div className="form-group">
-                  <label>Contact Email</label>
-                  <input type="email" defaultValue={user?.email || "seller@example.com"} />
+                  <label>Phone Number</label>
+                  <input type="tel" value={user?.sellerProfile?.phoneNumber || ""} readOnly />
                 </div>
+              </div>
 
-                <div className="form-group">
-                  <label>Business Address</label>
-                  <input type="text" defaultValue="123 Main St, City, Country" />
-                </div>
-
-                <div className="form-group">
-                  <label>Payment Methods</label>
-                  <div className="checkbox-group">
-                    <label>
-                      <input type="checkbox" defaultChecked /> Credit Card
-                    </label>
-                    <label>
-                      <input type="checkbox" defaultChecked /> PayPal
-                    </label>
-                    <label>
-                      <input type="checkbox" /> Bank Transfer
-                    </label>
-                  </div>
-                </div>
-
-                <button type="submit" className="save-btn">
-                  Save Settings
-                </button>
-              </form>
+              <div className="form-actions">
+                <button className="btn-primary">Edit Profile</button>
+              </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {showProductForm && (
@@ -432,6 +697,8 @@ const SellerDashboard = () => {
             </button>
 
             <h2>{productFormData.id ? "Edit Product" : "Add New Product"}</h2>
+
+            {errorMessage && <div className="error-message">{errorMessage}</div>}
 
             <form onSubmit={handleProductFormSubmit}>
               <div className="form-group">
@@ -446,7 +713,7 @@ const SellerDashboard = () => {
               </div>
 
               <div className="form-group">
-                <label>Price (USD)*</label>
+                <label>Price (Rs.)*</label>
                 <input
                   type="number"
                   name="price"
@@ -497,43 +764,130 @@ const SellerDashboard = () => {
               <div className="form-group">
                 <label>Product Images</label>
                 <div className="image-upload">
-                  <button type="button">Upload Images</button>
+                  <input
+                    type="file"
+                    id="product-images"
+                    accept="image/*"
+                    multiple
+                    onChange={handleImageUpload}
+                    style={{ display: 'none' }}
+                  />
+                  <label htmlFor="product-images" className="upload-btn">
+                    <FaUpload /> Upload Images
+                  </label>
                   <p className="help-text">
                     You can upload up to 5 images. First image will be the main product image.
+                  </p>
+
+                  {previewImages.length > 0 && (
+                    <div className="image-previews">
+                      {previewImages.map((src, index) => (
+                        <div key={index} className="image-preview-item">
+                          <img src={src} alt={`Preview ${index + 1}`} />
+                          <button
+                            type="button"
+                            className="remove-image-btn"
+                            onClick={() => handleRemoveImage(index)}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="form-section">
+                <h3>AR Models</h3>
+                
+                <div className="form-group">
+                  <label>AR Model for iOS (USDZ)</label>
+                  <div className="ar-model-upload">
+                    <input
+                      type="file"
+                      name="arIosModel"
+                      accept=".usdz,model/vnd.usdz+zip,application/octet-stream"
+                      onChange={(e) => handleModelUpload(e, 'ios')}
+                    />
+                    <p className="help-text">Upload a USDZ file for iOS AR Quick Look</p>
+                    {modelUploading.ios && <div className="loading-spinner model-upload-spinner"></div>}
+                    {modelErrors.ios && <p className="error-text">{modelErrors.ios}</p>}
+                  </div>
+                  
+                  {(modelPreviews.ios || productFormData.arIosUrl) && (
+                    <ModelPreview 
+                      modelUrl={productFormData.arIosUrl || modelPreviews.ios} 
+                      modelType="usdz" 
+                      showQRCode={true}
+                    />
+                  )}
+                  
+                  <input
+                    type="text"
+                    name="arIosUrl"
+                    value={productFormData.arIosUrl || ''}
+                    onChange={handleProductFormChange}
+                    placeholder="https://github.com/sanamxgit/models/model.usdz"
+                  />
+                  <p className="help-text">
+                    Or provide a direct URL to a USDZ file already hosted on GitHub
+                  </p>
+                </div>
+                
+                <div className="form-group">
+                  <label>AR Model for Android (GLB/GLTF)</label>
+                  <div className="ar-model-upload">
+                    <input
+                      type="file"
+                      name="arAndroidModel"
+                      accept=".glb,.gltf,model/gltf-binary,model/gltf+json,application/octet-stream"
+                      onChange={(e) => handleModelUpload(e, 'android')}
+                    />
+                    <p className="help-text">Upload a GLB or GLTF file for Android Scene Viewer</p>
+                    {modelUploading.android && <div className="loading-spinner model-upload-spinner"></div>}
+                    {modelErrors.android && <p className="error-text">{modelErrors.android}</p>}
+                  </div>
+                  
+                  {(modelPreviews.android || productFormData.arAndroidUrl) && (
+                    <ModelPreview 
+                      modelUrl={productFormData.arAndroidUrl || modelPreviews.android} 
+                      modelType="glb" 
+                      showQRCode={true}
+                    />
+                  )}
+                  
+                  <input
+                    type="text"
+                    name="arAndroidUrl"
+                    value={productFormData.arAndroidUrl || ''}
+                    onChange={handleProductFormChange}
+                    placeholder="https://github.com/sanamxgit/models/model.glb"
+                  />
+                  <p className="help-text">
+                    Or provide a direct URL to a GLB/GLTF file already hosted on GitHub
                   </p>
                 </div>
               </div>
 
-              <div className="form-group">
-                <label>AR Model for iOS (USDZ URL)</label>
-                <input
-                  type="text"
-                  name="arIosUrl"
-                  value={productFormData.arIosUrl}
-                  onChange={handleProductFormChange}
-                  placeholder="https://example.com/model.usdz"
-                />
-                <p className="help-text">URL to USDZ file for iOS AR Quick Look</p>
-              </div>
-
-              <div className="form-group">
-                <label>AR Model for Android (GLB URL)</label>
-                <input
-                  type="text"
-                  name="arAndroidUrl"
-                  value={productFormData.arAndroidUrl}
-                  onChange={handleProductFormChange}
-                  placeholder="https://example.com/model.glb"
-                />
-                <p className="help-text">URL to GLB file for Android Scene Viewer</p>
-              </div>
-
               <div className="form-actions">
-                <button type="button" className="cancel-btn" onClick={() => setShowProductForm(false)}>
+                <button
+                  type="button"
+                  className="cancel-btn"
+                  onClick={() => setShowProductForm(false)}
+                  disabled={isSubmitting}
+                >
                   Cancel
                 </button>
-                <button type="submit" className="save-btn">
-                  {productFormData.id ? "Update Product" : "Add Product"}
+                <button
+                  type="submit"
+                  className="save-btn"
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting
+                    ? "Saving..."
+                    : (productFormData.id ? "Update Product" : "Add Product")
+                  }
                 </button>
               </div>
             </form>
