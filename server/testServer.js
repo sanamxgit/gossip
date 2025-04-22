@@ -32,8 +32,7 @@ app.post('/api/auth/login', (req, res) => {
       username: 'Sanam',
       email: email,
       role: 'seller',
-      token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjEyMzQ1Njc4OSIsImVtYWlsIjoic2FuYW1AZ21haWwuY29tIiwicm9sZSI6InNlbGxlciIsImlhdCI6MTY0MzI5MjQ4MCwiZXhwIjoxNjQ1ODg0NDgwfQ.sample-token'
-    });
+      token: ''
   } else {
     res.status(401).json({ message: 'Invalid email or password' });
   }
