@@ -1,10 +1,11 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Link } from "react-router-dom"
-import HeroSlider from "../components/home/HeroSlider"
 import ProductCard from "../components/products/ProductCard"
 import CategoryCard from "../components/categories/CategoryCard"
+import productService from "../services/api/productService"
+import categoryService from "../services/api/categoryService"
 import "./HomePage.css"
 
 // Constants for UI behavior
@@ -20,58 +21,188 @@ const HomePage = () => {
   const [bannerData, setBannerData] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   const [showDebug, setShowDebug] = useState(false)
+  const [currentBannerSlide, setCurrentBannerSlide] = useState(0)
+  const bannerIntervalRef = useRef(null)
 
   useEffect(() => {
-    // In a real app, fetch data from API
+    // Fetch real data from API
     const fetchData = async () => {
       setIsLoading(true)
       try {
-        // Try to get sections from localStorage first
-        const savedSections = localStorage.getItem('homePageSections')
+        // Try to fetch sections from the API
         let sections = [];
         
-        if (savedSections) {
-          try {
-            sections = JSON.parse(savedSections)
-            console.log('HomePage: Loaded sections from localStorage:', sections)
-          } catch (error) {
-            console.error('Error parsing saved sections:', error)
-            // Use default sections if parsing fails
-            sections = getDefaultSections()
+        try {
+          // This is where we would call the API endpoint
+          const response = await fetch('/api/homepage/sections');
+          if (response.ok) {
+            const data = await response.json();
+            sections = data;
+            console.log('HomePage: Loaded sections from API:', sections);
+          } else {
+            // Fallback to localStorage if API fails
+            const savedSections = localStorage.getItem('homePageSections');
+            if (savedSections) {
+              try {
+                sections = JSON.parse(savedSections);
+                console.log('HomePage: Loaded sections from localStorage:', sections);
+              } catch (error) {
+                console.error('Error parsing saved sections:', error);
+                // Use default sections if parsing fails
+                sections = getDefaultSections();
+              }
+            } else {
+              // Use default sections if nothing in localStorage
+              sections = getDefaultSections();
+            }
           }
-        } else {
-          // Use default sections if nothing in localStorage
-          sections = getDefaultSections()
+        } catch (error) {
+          console.error('Error fetching sections from API:', error);
+          // Fallback to localStorage
+          const savedSections = localStorage.getItem('homePageSections');
+          if (savedSections) {
+            try {
+              sections = JSON.parse(savedSections);
+              console.log('HomePage: Loaded sections from localStorage:', sections);
+            } catch (error) {
+              console.error('Error parsing saved sections:', error);
+              // Use default sections if parsing fails
+              sections = getDefaultSections();
+            }
+          } else {
+            // Use default sections if nothing in localStorage
+            sections = getDefaultSections();
+          }
         }
         
         // Set sections and process them
         setHomePageSections(sections)
-        processHomepageSections(sections)
 
-        // Mock browse products (this won't change as it's not managed by admin)
-        const mockBrowseProducts = Array(10)
-          .fill()
-          .map((_, index) => ({
-            id: 100 + index,
-            name: `Product name`,
-            price: 9999,
-            originalPrice: 11000,
-            image: "/placeholder.svg?height=200&width=200",
-            sold: 20,
-            arIosUrl: "https://github.com/sanamxgit/untitled.usdz",
-            arAndroidUrl: "https://example.com/ar/android/product1.glb",
-          }))
-        setBrowseProducts(mockBrowseProducts)
+        // Fetch real products from API
+        // All products for browse section
+        try {
+          const productsResponse = await productService.getAllProducts({ limit: 10 })
+          console.log("Products from API:", productsResponse)
+          setBrowseProducts(productsResponse.products || [])
+        } catch (apiError) {
+          console.error("Error fetching all products:", apiError)
+          // Set empty array if API fails
+          setBrowseProducts([])
+        }
+          
+        // Featured products for flash sale  
+        try {
+          const featuredProductsResponse = await productService.getFeaturedProducts(8)
+          console.log("Featured products from API:", featuredProductsResponse)
+          setFlashSaleProducts(featuredProductsResponse.products || [])
+        } catch (apiError) {
+          console.error("Error fetching featured products:", apiError)
+          // Process mock data from section if API fails
+          if (sections.some(s => s.type === "products" && s.active)) {
+            processHomepageSections(sections.filter(s => s.type === "products"))
+          }
+        }
+          
+        // Trending products (new arrivals)
+        try {
+          const newArrivalsResponse = await productService.getNewArrivals(4)
+          console.log("New arrivals from API:", newArrivalsResponse)
+          setTrendingProducts(newArrivalsResponse.products || [])
+        } catch (apiError) {
+          console.error("Error fetching new arrivals:", apiError)
+          // Keep empty array if API fails
+          setTrendingProducts([])
+        }
+          
+        // Categories
+        try {
+          const categoriesResponse = await categoryService.getFeaturedCategories(4)
+          console.log("Categories from API:", categoriesResponse)
+          if (categoriesResponse.categories && categoriesResponse.categories.length > 0) {
+            setCategories(categoriesResponse.categories || [])
+          } else if (sections.some(s => s.type === "categories" && s.active)) {
+            // Process mock data from section if API returns empty
+            processHomepageSections(sections.filter(s => s.type === "categories"))
+          }
+        } catch (apiError) {
+          console.error("Error fetching categories:", apiError)
+          if (sections.some(s => s.type === "categories" && s.active)) {
+            // Process mock data from section if API fails
+            processHomepageSections(sections.filter(s => s.type === "categories"))
+          }
+        }
+          
+        // Icon categories
+        try {
+          const topCategoriesResponse = await categoryService.getTopLevelCategories()
+          console.log("Top categories from API:", topCategoriesResponse)
+          
+          // Transform categories to match icon-categories format
+          if (topCategoriesResponse.categories && topCategoriesResponse.categories.length > 0) {
+            const transformedIconCategories = topCategoriesResponse.categories.map(cat => ({
+              name: cat.name,
+              imageUrl: cat.image || '/placeholder.svg', // Use image instead of emoji/icon
+              link: `/category/${cat.slug || cat._id}`
+            }))
+            
+            setIconCategories(transformedIconCategories)
+          } else if (sections.some(s => s.type === "icon-categories" && s.active)) {
+            // Process mock data from section if API returns empty
+            processHomepageSections(sections.filter(s => s.type === "icon-categories"))
+          }
+        } catch (apiError) {
+          console.error("Error fetching top categories:", apiError)
+          if (sections.some(s => s.type === "icon-categories" && s.active)) {
+            // Process mock data from section if API fails
+            processHomepageSections(sections.filter(s => s.type === "icon-categories"))
+          }
+        }
+          
+        // Process banner data
+        if (sections.some(s => s.type === "banner" && s.active)) {
+          processHomepageSections(sections.filter(s => s.type === "banner"))
+        }
 
-        setIsLoading(false)
       } catch (error) {
         console.error("Error fetching data:", error)
+        // Process all sections with default data as fallback
+        processHomepageSections(getDefaultSections())
+      } finally {
         setIsLoading(false)
       }
     }
 
     fetchData()
+    
+    // Cleanup function
+    return () => {
+      if (bannerIntervalRef.current) {
+        clearInterval(bannerIntervalRef.current);
+      }
+    }
   }, [])
+  
+  // Set up banner auto-rotation when bannerData changes
+  useEffect(() => {
+    if (bannerData && Array.isArray(bannerData.slides) && bannerData.slides.length > 1) {
+      // Clear any existing interval
+      if (bannerIntervalRef.current) {
+        clearInterval(bannerIntervalRef.current);
+      }
+      
+      // Set up auto-rotation every 5 seconds
+      bannerIntervalRef.current = setInterval(() => {
+        setCurrentBannerSlide(prevSlide => (prevSlide + 1) % bannerData.slides.length);
+      }, 5000);
+      
+      // Clear interval on unmount
+      return () => {
+        if (bannerIntervalRef.current) {
+          clearInterval(bannerIntervalRef.current);
+        }
+      };
+    }
+  }, [bannerData]);
   
   // Helper function to get default sections if nothing in localStorage
   const getDefaultSections = () => {
@@ -80,13 +211,24 @@ const HomePage = () => {
         id: 1,
         title: "Main Banner",
         type: "banner",
-        content: JSON.stringify({
-          image: "/placeholder.svg?height=400&width=800",
-          title: "Season Sale",
-          subtitle: "Special Offer",
-          buttonText: "Shop Now",
-          buttonLink: "/sale",
-        }),
+        content: {
+          slides: [
+            {
+              imageUrl: "/placeholder.svg?height=400&width=800",
+              title: "Season Sale",
+              subtitle: "Special Offer",
+              buttonText: "Shop Now",
+              buttonLink: "/sale",
+            },
+            {
+              imageUrl: "/placeholder.svg?height=400&width=800",
+              title: "New Arrivals",
+              subtitle: "Check out our latest products",
+              buttonText: "Shop Now",
+              buttonLink: "/new",
+            }
+          ]
+        },
         order: 1,
         active: true,
       },
@@ -94,14 +236,14 @@ const HomePage = () => {
         id: 2,
         title: "Trending Categories",
         type: "categories",
-        content: JSON.stringify({
+        content: {
           categories: [
-            { name: "Furniture", description: "in your style", image: "/placeholder.svg?height=200&width=200" },
-            { name: "Lamp", description: "in your environment", image: "/placeholder.svg?height=200&width=200" },
-            { name: "Your skincare", description: "experts", image: "/placeholder.svg?height=200&width=200" },
-            { name: "Humidifier", description: "relief your skin", image: "/placeholder.svg?height=200&width=200" },
-          ],
-        }),
+            { name: "Furniture", description: "in your style", imageUrl: "/placeholder.svg?height=200&width=200" },
+            { name: "Lamp", description: "in your environment", imageUrl: "/placeholder.svg?height=200&width=200" },
+            { name: "Your skincare", description: "experts", imageUrl: "/placeholder.svg?height=200&width=200" },
+            { name: "Humidifier", description: "relief your skin", imageUrl: "/placeholder.svg?height=200&width=200" },
+          ]
+        },
         order: 2,
         active: true,
       },
@@ -109,9 +251,9 @@ const HomePage = () => {
         id: 3,
         title: "Flash Sale",
         type: "products",
-        content: JSON.stringify({
+        content: {
           productIds: [1, 2, 3, 4, 5, 6, 7, 8],
-        }),
+        },
         order: 3,
         active: true,
       },
@@ -119,18 +261,18 @@ const HomePage = () => {
         id: 4,
         title: "Category Icons", 
         type: "icon-categories",
-        content: JSON.stringify({
+        content: {
           categories: [
-            { name: "Mobile & Devices", icon: "📱", link: "/category/mobile-devices" },
-            { name: "Watch", icon: "⌚", link: "/category/watch" },
-            { name: "Accessories", icon: "🎧", link: "/category/accessories" },
-            { name: "Home & Decor", icon: "🏠", link: "/category/home-decor" },
-            { name: "Fashion", icon: "👕", link: "/category/fashion" },
-            { name: "Beauty", icon: "💄", link: "/category/beauty" },
-            { name: "Skin care product", icon: "✨", link: "/category/skincare" },
-            { name: "Skin care", icon: "🧴", link: "/category/skincare-2" },
+            { name: "Mobile & Devices", imageUrl: "/placeholder.svg?height=50&width=50", link: "/category/mobile-devices" },
+            { name: "Watch", imageUrl: "/placeholder.svg?height=50&width=50", link: "/category/watch" },
+            { name: "Accessories", imageUrl: "/placeholder.svg?height=50&width=50", link: "/category/accessories" },
+            { name: "Home & Decor", imageUrl: "/placeholder.svg?height=50&width=50", link: "/category/home-decor" },
+            { name: "Fashion", imageUrl: "/placeholder.svg?height=50&width=50", link: "/category/fashion" },
+            { name: "Beauty", imageUrl: "/placeholder.svg?height=50&width=50", link: "/category/beauty" },
+            { name: "Skin care product", imageUrl: "/placeholder.svg?height=50&width=50", link: "/category/skincare" },
+            { name: "Skin care", imageUrl: "/placeholder.svg?height=50&width=50", link: "/category/skincare-2" },
           ]
-        }),
+        },
         order: 4,
         active: true,
       }
@@ -145,20 +287,37 @@ const HomePage = () => {
       if (!section.active) return
       
       try {
-        const contentObj = JSON.parse(section.content)
+        // Handle both string content (from localStorage) and object content (from API)
+        const contentObj = typeof section.content === 'string' 
+          ? JSON.parse(section.content) 
+          : section.content;
+          
         console.log(`Processing section ${section.id} (${section.type}):`, contentObj)
         
         if (section.type === "banner") {
-          setBannerData(contentObj)
+          // Convert old format to new format if needed
+          if (!contentObj.slides && contentObj.image) {
+            setBannerData({
+              slides: [{
+                imageUrl: contentObj.image,
+                title: contentObj.title,
+                subtitle: contentObj.subtitle,
+                buttonText: contentObj.buttonText,
+                buttonLink: contentObj.buttonLink
+              }]
+            })
+          } else {
+            setBannerData(contentObj)
+          }
           console.log("Banner data set:", contentObj)
         } else if (section.type === "categories") {
           if (contentObj.categories) {
             // Transform categories data to match expected format
             const transformedCategories = contentObj.categories.map((cat, index) => ({
-              id: index + 1,
+              id: cat.id || index + 1,
               name: cat.name,
               description: cat.description,
-              image: cat.image
+              image: cat.imageUrl || cat.image
             }))
             setCategories(transformedCategories)
             console.log("Categories set:", transformedCategories)
@@ -182,8 +341,14 @@ const HomePage = () => {
           }
         } else if (section.type === "icon-categories") {
           if (contentObj.categories) {
-            setIconCategories(contentObj.categories)
-            console.log("Icon categories set:", contentObj.categories)
+            // Update to use images instead of icons/emoji
+            const transformedIconCategories = contentObj.categories.map(cat => ({
+              name: cat.name,
+              imageUrl: cat.imageUrl || cat.image || '/placeholder.svg',
+              link: cat.link
+            }))
+            setIconCategories(transformedIconCategories)
+            console.log("Icon categories set:", transformedIconCategories)
           }
         }
       } catch (error) {
@@ -191,6 +356,11 @@ const HomePage = () => {
       }
     })
   }
+
+  // Function to handle slider nav dots click
+  const handleSliderDotClick = (index) => {
+    setCurrentBannerSlide(index);
+  };
 
   // Helper function to render slider dots
   const renderSliderDots = (count, activeIndex = 0) => {
@@ -200,11 +370,24 @@ const HomePage = () => {
           <div
             key={index}
             className={`slider-dot ${index === activeIndex ? 'active' : ''}`}
-            // onClick would handle changing the active slide in a real implementation
+            onClick={() => handleSliderDotClick(index)}
           ></div>
         ))}
       </div>
     );
+  };
+
+  // Function to handle banner slider navigation
+  const handleBannerNavigation = (direction) => {
+    if (bannerData && Array.isArray(bannerData.slides)) {
+      const slideCount = bannerData.slides.length;
+      
+      if (direction === 'prev') {
+        setCurrentBannerSlide(prevSlide => (prevSlide - 1 + slideCount) % slideCount);
+      } else {
+        setCurrentBannerSlide(prevSlide => (prevSlide + 1) % slideCount);
+      }
+    }
   };
 
   // Function to handle slider arrow clicks for horizontal scrolling
@@ -266,21 +449,70 @@ const HomePage = () => {
     
     return sortedSections.map(section => {
       if (section.type === "banner" && bannerData) {
-        console.log("Rendering banner with image:", bannerData.image)
+        if (!bannerData.slides || bannerData.slides.length === 0) return null;
+        
+        // Get slides with circular indexing
+        const slideCount = bannerData.slides.length;
+        const prevIndex = (currentBannerSlide - 1 + slideCount) % slideCount;
+        const nextIndex = (currentBannerSlide + 1) % slideCount;
+        
+        const prevSlide = bannerData.slides[prevIndex];
+        const currentSlide = bannerData.slides[currentBannerSlide];
+        const nextSlide = bannerData.slides[nextIndex];
+        
+        console.log("Rendering circular banner carousel");
+        
         return (
           <section key={section.id} className="banner-section">
-            <div className="custom-banner" style={{ backgroundImage: `url(${bannerData.image})` }}>
-              <div className="container">
-                <div className="banner-content">
-                  <h1>{bannerData.title}</h1>
-                  <p>{bannerData.subtitle}</p>
-                  {bannerData.buttonText && (
-                    <Link to={bannerData.buttonLink || "#"} className="banner-btn">
-                      {bannerData.buttonText}
-                    </Link>
-                  )}
+            <div className="circular-banner-container">
+              <div className="circular-slides-wrapper">
+                {/* Previous slide (left side, partially visible) */}
+                <div className="circular-slide prev-slide" onClick={() => handleBannerNavigation('prev')}>
+                  <img src={prevSlide.imageUrl} alt="Previous" />
+                </div>
+                
+                {/* Current slide (center, fully visible) */}
+                <div className="circular-slide current-slide">
+                  <img src={currentSlide.imageUrl} alt={currentSlide.title} />
+                  <div className="banner-content">
+                    <h1>{currentSlide.title}</h1>
+                    <p>{currentSlide.subtitle}</p>
+                    {currentSlide.buttonText && (
+                      <Link to={currentSlide.buttonLink || "#"} className="banner-btn">
+                        {currentSlide.buttonText}
+                      </Link>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Next slide (right side, partially visible) */}
+                <div className="circular-slide next-slide" onClick={() => handleBannerNavigation('next')}>
+                  <img src={nextSlide.imageUrl} alt="Next" />
                 </div>
               </div>
+              
+              {/* Navigation controls */}
+              {bannerData.slides && bannerData.slides.length > 1 && (
+                <>
+                  <button 
+                    className="banner-nav prev" 
+                    onClick={() => handleBannerNavigation('prev')}
+                    aria-label="Previous slide"
+                  >
+                    ‹
+                  </button>
+                  <button 
+                    className="banner-nav next" 
+                    onClick={() => handleBannerNavigation('next')}
+                    aria-label="Next slide"
+                  >
+                    ›
+                  </button>
+                  
+                  {/* Add slider dots for navigation */}
+                  {renderSliderDots(bannerData.slides.length, currentBannerSlide)}
+                </>
+              )}
             </div>
           </section>
         )
@@ -291,7 +523,7 @@ const HomePage = () => {
               <h2 className="section-title">{section.title}</h2>
               <div className="trending-categories">
                 {categories.map((category) => (
-                  <CategoryCard key={category.id} category={category} />
+                  <CategoryCard key={category.id || category._id} category={category} />
                 ))}
               </div>
             </div>
@@ -306,13 +538,21 @@ const HomePage = () => {
             <div className="container">
               <h2 className="section-title">{section.title}</h2>
               <div className="products-slider">
-                <button className="slider-arrow prev" onClick={(e) => handleSliderScroll('left', 'products')}>‹</button>
+                <button 
+                  className="slider-arrow prev" 
+                  onClick={() => handleSliderScroll('left', 'products')}
+                  aria-label="Previous products"
+                >‹</button>
                 <div className="products-grid">
                   {flashSaleProducts.map((product) => (
-                    <ProductCard key={product.id} product={product} />
+                    <ProductCard key={product.id || product._id} product={product} />
                   ))}
                 </div>
-                <button className="slider-arrow next" onClick={(e) => handleSliderScroll('right', 'products')}>›</button>
+                <button 
+                  className="slider-arrow next" 
+                  onClick={() => handleSliderScroll('right', 'products')}
+                  aria-label="Next products"
+                >›</button>
                 {/* Add the slider dots */}
                 {renderSliderDots(dotsCount)}
               </div>
@@ -325,16 +565,26 @@ const HomePage = () => {
             <div className="container">
               <h2 className="section-title">{section.title}</h2>
               <div className="category-icons">
-                <button className="slider-arrow prev" onClick={(e) => handleSliderScroll('left', 'categories')}>‹</button>
+                <button 
+                  className="slider-arrow prev" 
+                  onClick={() => handleSliderScroll('left', 'categories')}
+                  aria-label="Previous categories"
+                >‹</button>
                 <div className="category-grid">
                   {iconCategories.map((category, index) => (
                     <Link to={category.link} className="category-item" key={index}>
-                      <div className="category-icon">{category.icon}</div>
+                      <div className="category-icon">
+                        <img src={category.imageUrl} alt={category.name} />
+                      </div>
                       <span>{category.name}</span>
                     </Link>
                   ))}
                 </div>
-                <button className="slider-arrow next" onClick={(e) => handleSliderScroll('right', 'categories')}>›</button>
+                <button 
+                  className="slider-arrow next" 
+                  onClick={() => handleSliderScroll('right', 'categories')}
+                  aria-label="Next categories"
+                >›</button>
               </div>
             </div>
           </section>
@@ -356,7 +606,7 @@ const HomePage = () => {
           <div className="browse-products">
             <div className="products-grid">
               {browseProducts.map((product) => (
-                <ProductCard key={product.id} product={product} />
+                <ProductCard key={product.id || product._id} product={product} />
               ))}
             </div>
             <div className="view-more-container">
@@ -390,6 +640,9 @@ const HomePage = () => {
             <div className="debug-data">
               <h3>Banner Data:</h3>
               <pre>{JSON.stringify(bannerData, null, 2)}</pre>
+              
+              <h3>Current Banner Slide:</h3>
+              <pre>{currentBannerSlide}</pre>
               
               <h3>Categories:</h3>
               <pre>{JSON.stringify(categories, null, 2)}</pre>

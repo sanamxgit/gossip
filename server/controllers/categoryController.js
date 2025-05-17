@@ -13,6 +13,33 @@ const getCategories = async (req, res) => {
   }
 };
 
+// @desc    Get featured categories
+// @route   GET /api/categories/featured
+// @access  Public
+const getFeaturedCategories = async (req, res) => {
+  try {
+    const limit = Number(req.query.limit) || 4;
+    
+    // Find categories with product counts
+    const categories = await Category.find({})
+      .sort({ name: 1 })
+      .limit(limit);
+    
+    // Add description field for each category if missing
+    const categoriesWithDescriptions = categories.map(cat => {
+      const category = cat.toObject();
+      if (!category.description) {
+        category.description = `Shop ${category.name}`;
+      }
+      return category;
+    });
+    
+    res.json({ categories: categoriesWithDescriptions });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // @desc    Get single category
 // @route   GET /api/categories/:id
 // @access  Public
@@ -219,4 +246,5 @@ module.exports = {
   getTopCategories,
   getSubcategories,
   getCategoryProducts,
+  getFeaturedCategories,
 }; 

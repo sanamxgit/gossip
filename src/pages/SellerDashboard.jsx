@@ -30,12 +30,15 @@ const SellerDashboard = () => {
     id: null,
     title: "",
     price: "",
+    originalPrice: "",
     description: "",
     category: "",
     stock: "",
     images: [],
     arIosUrl: "",
     arAndroidUrl: "",
+    brand: "",
+    colors: []
   })
   const [previewImages, setPreviewImages] = useState([])
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -80,6 +83,10 @@ const SellerDashboard = () => {
   const fetchSellerData = async () => {
     setIsLoading(true)
     try {
+      // Debug: Log authentication state
+      console.log("Auth status:", { isAuthenticated, user })
+      console.log("Token:", localStorage.getItem('token'))
+      
       // Check if user is authenticated and is a seller
       const userData = await authService.getCurrentUser()
       if (!userData || userData.role !== 'seller') {
@@ -87,8 +94,13 @@ const SellerDashboard = () => {
       }
       setUser(userData)
 
-      // Fetch products
-      const productsData = await productService.getSellerProducts()
+      // Debug: Log user data from API
+      console.log("Authenticated user data:", userData)
+      
+      // Fetch products - passing the user ID if available
+      const productsData = await productService.getSellerProducts({ 
+        sellerId: userData._id 
+      })
       setProducts(productsData.products || [])
 
       // Fetch orders
@@ -147,12 +159,15 @@ const SellerDashboard = () => {
     setProductFormData({
       title: "",
       price: "",
+      originalPrice: "",
       description: "",
       category: "",
       stock: "",
       images: [],
       arIosUrl: "",
-      arAndroidUrl: ""
+      arAndroidUrl: "",
+      brand: "",
+      colors: []
     })
     setPreviewImages([])
     setShowProductForm(true)
@@ -165,12 +180,15 @@ const SellerDashboard = () => {
         id: product._id,
         title: product.title || "",
         price: product.price || "",
+        originalPrice: product.originalPrice || "",
         description: product.description || "",
         category: product.category?._id || product.category || "",
         stock: product.stock || "",
         images: product.images || [],
         arIosUrl: product.arModels?.ios || "",
-        arAndroidUrl: product.arModels?.android || ""
+        arAndroidUrl: product.arModels?.android || "",
+        brand: product.brand || "",
+        colors: product.colors || []
       })
       setPreviewImages(product.images || [])
       setShowProductForm(true)
@@ -304,8 +322,10 @@ const SellerDashboard = () => {
         [platform]: true
       }));
 
+      console.log(`Uploading ${platform} model file:`, file.name)
       const modelType = platform === 'ios' ? 'usdz' : 'glb';
       const uploadResponse = await modelUploadService.uploadModelToGitHub(file, modelType);
+      console.log(`Upload response for ${platform}:`, uploadResponse)
 
       // Update the product form data with the uploaded model URL
       if (platform === 'ios') {
@@ -313,11 +333,13 @@ const SellerDashboard = () => {
           ...prev,
           arIosUrl: uploadResponse.url
         }));
+        console.log("Updated iOS URL:", uploadResponse.url)
       } else {
         setProductFormData(prev => ({
           ...prev,
           arAndroidUrl: uploadResponse.url
         }));
+        console.log("Updated Android URL:", uploadResponse.url)
       }
 
       // Show success message
@@ -342,18 +364,28 @@ const SellerDashboard = () => {
     setIsSubmitting(true)
 
     try {
+      // Convert ARModels URLs to a proper object structure
+      const arModelsData = {
+        ios: productFormData.arIosUrl || "",
+        android: productFormData.arAndroidUrl || ""
+      }
+
+      console.log("AR Models being submitted:", arModelsData)
+
       const formData = {
         title: productFormData.title,
         price: parseFloat(productFormData.price),
+        originalPrice: parseFloat(productFormData.originalPrice),
         description: productFormData.description,
         category: productFormData.category,
+        brand: productFormData.brand || "651d72f84b14d81584889191",
         stock: parseInt(productFormData.stock),
         images: productFormData.images,
-        arModels: {
-          ios: productFormData.arIosUrl,
-          android: productFormData.arAndroidUrl
-        }
+        arModels: arModelsData,
+        colors: productFormData.colors
       }
+
+      console.log("Submitting form data:", formData)
 
       let response
       if (productFormData.id) {
@@ -406,6 +438,32 @@ const SellerDashboard = () => {
       month: "short",
       day: "numeric",
     })
+  }
+
+  const handleAddColor = () => {
+    const newColors = [...productFormData.colors, { name: "", code: "#000000" }];
+    setProductFormData(prev => ({
+      ...prev,
+      colors: newColors
+    }));
+  }
+
+  const handleColorChange = (index, field, value) => {
+    const newColors = [...productFormData.colors];
+    newColors[index][field] = value;
+    setProductFormData(prev => ({
+      ...prev,
+      colors: newColors
+    }));
+  }
+
+  const handleRemoveColor = (index) => {
+    const newColors = [...productFormData.colors];
+    newColors.splice(index, 1);
+    setProductFormData(prev => ({
+      ...prev,
+      colors: newColors
+    }));
   }
 
   if (loading || isLoading) {
@@ -726,6 +784,20 @@ const SellerDashboard = () => {
               </div>
 
               <div className="form-group">
+                <label>Original Price (Rs.)</label>
+                <input
+                  type="number"
+                  name="originalPrice"
+                  value={productFormData.originalPrice}
+                  onChange={handleProductFormChange}
+                  step="0.01"
+                  min="0"
+                  placeholder="Original price (for discount)"
+                />
+                <small>Leave blank if there's no discount</small>
+              </div>
+
+              <div className="form-group">
                 <label>Description</label>
                 <textarea
                   name="description"
@@ -746,6 +818,19 @@ const SellerDashboard = () => {
                   <option value="Fashion">Fashion</option>
                   <option value="Beauty">Beauty</option>
                   <option value="Skin care">Skin care</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>Brand</label>
+                <select name="brand" value={productFormData.brand} onChange={handleProductFormChange}>
+                  <option value="">Select Brand</option>
+                  <option value="651d72f84b14d81584889191">Apple</option>
+                  <option value="651d72f84b14d81584889192">Samsung</option>
+                  <option value="651d72f84b14d81584889193">Nike</option>
+                  <option value="651d72f84b14d81584889194">Adidas</option>
+                  <option value="651d72f84b14d81584889195">Sony</option>
+                  <option value="651d72f84b14d81584889196">IKEA</option>
                 </select>
               </div>
 
@@ -796,6 +881,55 @@ const SellerDashboard = () => {
                     </div>
                   )}
                 </div>
+              </div>
+
+              <div className="form-section">
+                <h3>Product Colors</h3>
+                <div className="color-container">
+                  {productFormData.colors.map((color, index) => (
+                    <div key={index} className="color-item">
+                      <div className="form-group">
+                        <label>Color Name</label>
+                        <input
+                          type="text"
+                          value={color.name}
+                          onChange={(e) => handleColorChange(index, 'name', e.target.value)}
+                          placeholder="e.g. Red, Blue, Green"
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Color Code</label>
+                        <div className="color-picker-wrapper">
+                          <input
+                            type="color"
+                            value={color.code}
+                            onChange={(e) => handleColorChange(index, 'code', e.target.value)}
+                          />
+                          <input
+                            type="text"
+                            value={color.code}
+                            onChange={(e) => handleColorChange(index, 'code', e.target.value)}
+                            placeholder="#RRGGBB"
+                          />
+                        </div>
+                      </div>
+                      <button 
+                        type="button" 
+                        className="remove-color-btn"
+                        onClick={() => handleRemoveColor(index)}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <button 
+                  type="button" 
+                  className="add-color-btn"
+                  onClick={handleAddColor}
+                >
+                  Add Color
+                </button>
               </div>
 
               <div className="form-section">

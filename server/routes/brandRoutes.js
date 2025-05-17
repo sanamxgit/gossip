@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const brandController = require('../controllers/brandController');
 const { protect, admin } = require('../middleware/authMiddleware');
-const upload = require('../middleware/uploadMiddleware');
+const { upload } = require('../middleware/uploadMiddleware');
 
 // @route   GET /api/brands
 // @desc    Get all brands

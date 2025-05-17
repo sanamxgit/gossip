@@ -5,6 +5,8 @@ import { useParams } from "react-router-dom"
 import { useCart } from "../contexts/CartContext"
 import ARButton from "../components/ar/ARButton"
 import ProductCard from "../components/products/ProductCard"
+import ErrorBoundary from "../components/common/ErrorBoundary"
+import productService from "../services/api/productService"
 import "./ProductPage.css"
 
 const ProductPage = () => {
@@ -14,66 +16,49 @@ const ProductPage = () => {
   const [quantity, setQuantity] = useState(1)
   const [loading, setLoading] = useState(true)
   const [relatedProducts, setRelatedProducts] = useState([])
+  const [error, setError] = useState(null)
+  const [selectedColor, setSelectedColor] = useState(null)
 
   useEffect(() => {
-    // In a real app, fetch product from API
-    const fetchProduct = async () => {
-      setLoading(true)
+    // Reset state when product ID changes
+    setLoading(true)
+    setError(null)
+    setProduct(null)
+    setRelatedProducts([])
+    
+    const fetchProductData = async () => {
       try {
-        // Simulate API call
-        setTimeout(() => {
-          // Mock product data
-          const mockProduct = {
-            id: Number.parseInt(id),
-            name: "Product name",
-            description:
-              "This is a detailed description of the product. It includes information about the materials, dimensions, and features of the product.",
-            price: 9999,
-            originalPrice: 11000,
-            images: [
-              "/placeholder.svg?height=500&width=500",
-              "/placeholder.svg?height=500&width=500",
-              "/placeholder.svg?height=500&width=500",
-            ],
-            sold: 20,
-            stock: 50,
-            category: "Home & Decor",
-            arIosUrl: "https://example.com/ar/ios/product1.usdz",
-            arAndroidUrl: "https://example.com/ar/android/product1.glb",
-            specifications: [
-              { name: "Material", value: "Wood" },
-              { name: "Dimensions", value: "50 x 30 x 20 cm" },
-              { name: "Weight", value: "2 kg" },
-              { name: "Color", value: "Brown" },
-            ],
-          }
-
-          setProduct(mockProduct)
-
-          // Mock related products
-          const mockRelatedProducts = Array(4)
-            .fill()
-            .map((_, index) => ({
-              id: 100 + index,
-              name: `Related Product ${index + 1}`,
-              price: 9999,
-              originalPrice: 11000,
-              image: "/placeholder.svg?height=200&width=200",
-              sold: 15,
-              arIosUrl: "https://example.com/ar/ios/related.usdz",
-              arAndroidUrl: "https://example.com/ar/android/related.glb",
-            }))
-
-          setRelatedProducts(mockRelatedProducts)
-          setLoading(false)
-        }, 1000)
-      } catch (error) {
-        console.error("Error fetching product:", error)
+        console.log("Fetching product with ID:", id)
+        const productData = await productService.getProductById(id)
+        console.log("Product data received:", productData)
+        setProduct(productData)
+        
+        // Set default selected color if colors are available
+        if (productData.colors && productData.colors.length > 0) {
+          setSelectedColor(productData.colors[0])
+        }
+        
+        // Fetch related products
+        try {
+          const relatedData = await productService.getRelatedProducts(id)
+          console.log("Related products:", relatedData)
+          setRelatedProducts(relatedData.products || relatedData || [])
+        } catch (relatedError) {
+          console.error("Error fetching related products:", relatedError)
+          // Just set empty array for related products and don't block the main product display
+          setRelatedProducts([])
+        }
+      } catch (err) {
+        console.error("Error fetching product:", err)
+        setError("Failed to load product. Please try again later.")
+      } finally {
         setLoading(false)
       }
     }
 
-    fetchProduct()
+    if (id) {
+      fetchProductData()
+    }
   }, [id])
 
   const handleQuantityChange = (e) => {
@@ -97,16 +82,27 @@ const ProductPage = () => {
 
   const handleAddToCart = () => {
     if (product) {
-      addToCart(product, quantity)
+      addToCart({
+        ...product,
+        selectedColor: selectedColor
+      }, quantity)
     }
   }
 
   const formatPrice = (price) => {
-    return new Intl.NumberFormat("en-IN", {
+    return new Intl.NumberFormat("en-NP", {
       style: "currency",
-      currency: "INR",
+      currency: "NRs",
       minimumFractionDigits: 2,
     }).format(price)
+  }
+  
+  // This is a placeholder function for demo colors if product doesn't have them
+  const getProductColors = () => {
+    if (product && product.colors && product.colors.length > 0) {
+      return product.colors;
+    }
+    return ["#9A8A78", "#333333", "#D9D9D9"]; // Default beige, black, light grey
   }
 
   if (loading) {
@@ -114,6 +110,17 @@ const ProductPage = () => {
       <div className="product-page loading">
         <div className="container">
           <div className="loading-spinner"></div>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="product-page error">
+        <div className="container">
+          <h2>Error Loading Product</h2>
+          <p>{error}</p>
         </div>
       </div>
     )
@@ -129,6 +136,47 @@ const ProductPage = () => {
       </div>
     )
   }
+  
+  // Make sure image paths are fully qualified URLs
+  const getImageUrl = (imagePath) => {
+    if (!imagePath) return "/placeholder.svg";
+    
+    // If already a fully qualified URL, return as is
+    if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+      return imagePath;
+    }
+    
+    // If it's just a filename (not a path), prepend the uploads directory
+    if (!imagePath.startsWith('/')) {
+      return `${process.env.REACT_APP_UPLOAD_URL || 'http://localhost:5000/uploads'}/${imagePath}`;
+    }
+    
+    // If it's an absolute path to the server
+    if (imagePath.startsWith('/uploads/')) {
+      return `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}${imagePath}`;
+    }
+    
+    // Otherwise, return as is with API URL
+    return `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}${imagePath}`;
+  };
+
+  // Safely render ARButton component
+  const renderARButton = () => {
+    if (product.arModels?.ios || product.arModels?.android) {
+      return (
+        <ErrorBoundary silent={true}>
+          <div className="ar-button-container">
+            <ARButton 
+              iosUrl={product.arModels?.ios} 
+              androidUrl={product.arModels?.android} 
+              productName={product.title} 
+            />
+          </div>
+        </ErrorBoundary>
+      );
+    }
+    return null;
+  };
 
   return (
     <div className="product-page">
@@ -136,75 +184,147 @@ const ProductPage = () => {
         <div className="product-details">
           <div className="product-gallery">
             <div className="main-image">
-              <img src={product.images[0] || "/placeholder.svg"} alt={product.name} />
+              <img src={getImageUrl(product.images?.[0])} alt={product.title} />
             </div>
             <div className="thumbnail-images">
-              {product.images.map((image, index) => (
+              {(product.images || []).map((image, index) => (
                 <div key={index} className="thumbnail">
-                  <img src={image || "/placeholder.svg"} alt={`${product.name} - ${index + 1}`} />
+                  <img src={getImageUrl(image)} alt={`${product.title} - ${index + 1}`} />
                 </div>
               ))}
             </div>
           </div>
 
           <div className="product-info">
-            <h1 className="product-title">{product.name}</h1>
-            <div className="product-sold">{product.sold} sold</div>
+            <h1 className="product-title">{product.title}</h1>
+            <div className="product-meta">
+              <div className="product-sold">{product.sold || 0} sold</div>
+              {product.category && (
+                <div className="product-category">Category: {product.category.name || "Uncategorized"}</div>
+              )}
+            </div>
 
             <div className="product-price">
               <span className="current-price">{formatPrice(product.price)}</span>
-              <span className="original-price">{formatPrice(product.originalPrice)}</span>
-              <span className="discount-percentage">
-                {Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)}% OFF
-              </span>
+              {product.originalPrice && (
+                <>
+                  <span className="original-price">{formatPrice(product.originalPrice)}</span>
+                  <span className="discount-percentage">
+                    {Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)}% OFF
+                  </span>
+                </>
+              )}
             </div>
 
             <div className="product-description">
               <p>{product.description}</p>
             </div>
+            
+            {/* Color Options */}
+            <div className="product-colors">
+              <h4>Colors</h4>
+              <div className="color-options">
+                {getProductColors().map((color, index) => (
+                  <button 
+                    key={index}
+                    className={`color-option ${selectedColor === color ? 'selected' : ''}`}
+                    style={{ backgroundColor: color }}
+                    onClick={() => setSelectedColor(color)}
+                    aria-label={`Select color ${color}`}
+                    type="button"
+                  />
+                ))}
+              </div>
+            </div>
 
             <div className="product-actions">
               <div className="quantity-selector">
-                <button className="quantity-btn" onClick={decrementQuantity}>
+                <button className="quantity-btn" onClick={decrementQuantity} type="button">
                   -
                 </button>
                 <input type="number" value={quantity} onChange={handleQuantityChange} min="1" max={product.stock} />
-                <button className="quantity-btn" onClick={incrementQuantity}>
+                <button className="quantity-btn" onClick={incrementQuantity} type="button">
                   +
                 </button>
               </div>
 
-              <button className="add-to-cart-btn" onClick={handleAddToCart}>
+              <button className="add-to-cart-btn" onClick={handleAddToCart} type="button">
                 Add to Cart
               </button>
 
-              <div className="ar-button-container">
-                <ARButton iosUrl={product.arIosUrl} androidUrl={product.arAndroidUrl} productName={product.name} />
+              <button className="buy-now-btn" type="button">
+                Buy Now
+              </button>
+
+              {renderARButton()}
+            </div>
+          </div>
+        </div>
+        
+        {/* Additional Product Information Sections */}
+        <div className="product-additional-info">
+          <div className="product-feature-text">
+            <p>"{product.title} makes room for silence and sitting relaxed in a chair and enjoying yourself."</p>
+          </div>
+          
+          <div className="product-lifestyle-images">
+            <div className="lifestyle-grid">
+              {(product.images || []).slice(0, Math.min(product.images.length, 4)).map((image, index) => (
+                <div key={`lifestyle-${index}`} className={`lifestyle-image lifestyle-image-${index + 1}`}>
+                  <img src={getImageUrl(image)} alt={`${product.title} lifestyle ${index + 1}`} />
+                </div>
+              ))}
+            </div>
+          </div>
+          
+          {product.specifications && Object.keys(product.specifications).length > 0 && (
+            <div className="product-specifications-section">
+              <h3>Technical Details:</h3>
+              <div className="specifications-content">
+                <ul className="specifications-list">
+                  {Object.entries(product.specifications).map(([key, value], index) => (
+                    <li key={index}>
+                      <span className="spec-name">{key}:</span>
+                      <span className="spec-value">{value}</span>
+                    </li>
+                  ))}
+                </ul>
+                
+                {product.images && product.images.length > 0 && (
+                  <div className="specifications-image">
+                    <img src={getImageUrl(product.images[product.images.length - 1])} alt="Product specifications" />
+                  </div>
+                )}
               </div>
             </div>
+          )}
+        </div>
 
-            <div className="product-specifications">
-              <h3>Specifications</h3>
-              <ul>
-                {product.specifications.map((spec, index) => (
-                  <li key={index}>
-                    <span className="spec-name">{spec.name}:</span>
-                    <span className="spec-value">{spec.value}</span>
-                  </li>
+        {relatedProducts && relatedProducts.length > 0 && (
+          <div className="related-products">
+            <h2>More {product.category?.name || "Products"}</h2>
+            <ErrorBoundary silent={true}>
+              <div className="products-grid">
+                {relatedProducts.map((relatedProduct) => (
+                  <ProductCard key={relatedProduct._id} product={relatedProduct} />
                 ))}
-              </ul>
-            </div>
+              </div>
+            </ErrorBoundary>
           </div>
-        </div>
-
-        <div className="related-products">
-          <h2>You may also like</h2>
-          <div className="products-grid">
-            {relatedProducts.map((product) => (
-              <ProductCard key={product.id} product={product} />
-            ))}
+        )}
+        
+        {relatedProducts && relatedProducts.length > 0 && (
+          <div className="style-it-with">
+            <h2>Style It With</h2>
+            <ErrorBoundary silent={true}>
+              <div className="products-grid">
+                {relatedProducts.slice(0, Math.min(relatedProducts.length, 4)).map((relatedProduct) => (
+                  <ProductCard key={`style-${relatedProduct._id}`} product={relatedProduct} />
+                ))}
+              </div>
+            </ErrorBoundary>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )

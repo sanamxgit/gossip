@@ -2,11 +2,15 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useCart } from '../../contexts/CartContext';
 import ARButton from '../ar/ARButton';
+import ErrorBoundary from '../common/ErrorBoundary';
+import { UPLOAD_URL, API_URL } from '../../config';
 import './ProductCard.css';
 
 const ProductCard = ({ product }) => {
   const { addToCart } = useCart();
   const [isHovered, setIsHovered] = useState(false);
+  const [arButtonError, setArButtonError] = useState(false);
+  const [imageError, setImageError] = useState(false);
   
   const handleAddToCart = (e) => {
     e.preventDefault();
@@ -14,27 +18,86 @@ const ProductCard = ({ product }) => {
     addToCart(product);
   };
   
+  const getImageUrl = (imagePath) => {
+    if (!imagePath) return "/placeholder.svg";
+    
+    // If already a fully qualified URL, return as is
+    if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+      return imagePath;
+    }
+    
+    // If it's just a filename (not a path), prepend the uploads directory
+    if (!imagePath.startsWith('/')) {
+      return `${UPLOAD_URL}/${imagePath}`;
+    }
+    
+    // If it's an absolute path without domain
+    if (imagePath.startsWith('/uploads/')) {
+      return `${API_URL}${imagePath}`;
+    }
+    
+    // Fall back to API URL + path
+    return `${API_URL}${imagePath}`;
+  };
+  
   const formatPrice = (price) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      minimumFractionDigits: 2
+    return new Intl.NumberFormat("en-NP", {
+      style: "currency",
+      currency: "NRs",
+      minimumFractionDigits: 2,
     }).format(price);
   };
   
-  const discountPercentage = Math.round(
-    ((product.originalPrice - product.price) / product.originalPrice) * 100
-  );
+  const calculateDiscount = () => {
+    if (product.originalPrice && product.price) {
+      const discount = ((product.originalPrice - product.price) / product.originalPrice) * 100;
+      return Math.round(discount);
+    }
+    return 0;
+  };
+
+  // Safely render ARButton to handle potential errors
+  const renderARButton = () => {
+    if (arButtonError) return null;
+    
+    return (
+      <ErrorBoundary 
+        silent={true} 
+        onError={() => setArButtonError(true)}
+      >
+        <ARButton 
+          iosUrl={product.arModels?.ios || product.arIosUrl} 
+          androidUrl={product.arModels?.android || product.arAndroidUrl} 
+          productName={product.title || product.name}
+        />
+      </ErrorBoundary>
+    );
+  };
 
   return (
     <Link 
-      to={`/product/${product.id}`} 
+      to={`/product/${product._id}`} 
       className="product-card"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
       <div className="product-card-image">
-        <img src={product.image || "/placeholder.svg"} alt={product.name} />
+        <img 
+          src={imageError ? "/placeholder.svg" : getImageUrl(product.images?.[0])} 
+          alt={product.title} 
+          onError={(e) => {
+            e.target.onerror = null;
+            setImageError(true);
+          }}
+        />
+        
+        {calculateDiscount() > 0 && (
+          <div className="discount-label">-{calculateDiscount()}%</div>
+        )}
+        
+        {product.arModels && (Object.keys(product.arModels).length > 0) && (
+          <div className="ar-available">AR</div>
+        )}
         
         {/* Shop Now button at bottom right */}
         <div className="product-cta">
@@ -48,22 +111,40 @@ const ProductCard = ({ product }) => {
               Add to Cart
             </button>
             
-            <ARButton 
-              iosUrl={product.arIosUrl} 
-              androidUrl={product.arAndroidUrl} 
-              productName={product.name}
-            />
+            {!arButtonError && renderARButton()}
           </div>
         )}
       </div>
       
       <div className="product-card-content">
-        <h3 className="product-card-title">{product.name}</h3>
-        <div className="product-sold">{product.sold} sold</div>
+        <h3 className="product-card-title">{product.title || product.name}</h3>
+        <div className="product-card-meta">
+          {product.sold > 0 && (
+            <div className="product-sold">{product.sold} sold</div>
+          )}
+          {product.category && (
+            <div className="product-category">{typeof product.category === 'object' ? product.category.name : product.category}</div>
+          )}
+        </div>
+        
+        {product.colors && product.colors.length > 0 && (
+          <div className="product-colors">
+            {product.colors.map((color, index) => (
+              <div 
+                key={index} 
+                className="color-option" 
+                style={{ backgroundColor: typeof color === 'object' ? color.code : color }}
+                title={typeof color === 'object' ? color.name : color}
+              />
+            ))}
+          </div>
+        )}
         
         <div className="product-card-price">
           <span className="price">{formatPrice(product.price)}</span>
-          <span className="original-price">{formatPrice(product.originalPrice)}</span>
+          {product.originalPrice > product.price && (
+            <span className="original-price">{formatPrice(product.originalPrice)}</span>
+          )}
         </div>
       </div>
     </Link>

@@ -15,6 +15,10 @@ const productSchema = new mongoose.Schema({
     required: [true, 'Product price is required'],
     min: [0, 'Price must be positive']
   },
+  originalPrice: {
+    type: Number,
+    min: [0, 'Original price must be positive']
+  },
   stock: {
     type: Number,
     required: [true, 'Stock quantity is required'],
@@ -28,6 +32,19 @@ const productSchema = new mongoose.Schema({
   images: [
     {
       type: String
+    }
+  ],
+  colors: [
+    {
+      name: {
+        type: String
+      },
+      code: {
+        type: String
+      },
+      image: {
+        type: String
+      }
     }
   ],
   category: {
@@ -114,7 +131,7 @@ productSchema.virtual('discountPercentage').get(function() {
 });
 
 // Index for faster searches
-productSchema.index({ name: 'text', description: 'text' });
+productSchema.index({ title: 'text', description: 'text' });
 
 const Product = mongoose.model('Product', productSchema);
 

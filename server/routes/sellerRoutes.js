@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const sellerController = require('../controllers/sellerController');
 const { protect, seller, admin } = require('../middleware/authMiddleware');
-const upload = require('../middleware/uploadMiddleware');
+const { upload } = require('../middleware/uploadMiddleware');
 
 // @route   POST /api/sellers/apply
 // @desc    Apply to become a seller

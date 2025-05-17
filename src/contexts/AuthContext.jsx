@@ -71,6 +71,13 @@ export const AuthProvider = ({ children }) => {
       setUser(result.user || result)
       setIsAuthenticated(true)
       
+      // Store user data in localStorage for other components to access
+      if (result.user) {
+        localStorage.setItem('userData', JSON.stringify(result.user))
+      } else if (result && result._id) {
+        localStorage.setItem('userData', JSON.stringify(result))
+      }
+      
       return result
     } catch (err) {
       setError(err.message)
@@ -85,6 +92,7 @@ export const AuthProvider = ({ children }) => {
     authService.logout()
     setUser(null)
     setIsAuthenticated(false)
+    localStorage.removeItem('userData')
   }
 
   // Update user profile

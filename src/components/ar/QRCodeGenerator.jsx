@@ -1,15 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, forwardRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import './QRCodeGenerator.css';
 
-const QRCodeGenerator = ({ iosUrl, androidUrl }) => {
+const QRCodeGenerator = forwardRef(({ iosUrl, androidUrl }, ref) => {
   const [activeTab, setActiveTab] = useState('ios');
+  const internalRef = useRef(null);
+  const resolvedRef = ref || internalRef;
   
   // Generate deep link for iOS AR Quick Look
   const getIOSQRUrl = () => {
     if (!iosUrl) return '';
-    // Use ar:// protocol which directly opens the USDZ in AR Quick Look without downloading
-    return `https://apple-cdn.example.link/?url=${encodeURIComponent(iosUrl)}&ar=true`;
+    // Create an HTML page URL instead of direct USDZ link
+    const encodedModelUrl = encodeURIComponent(iosUrl);
+    const productName = 'Product';
+    return `${window.location.origin}/ar-quicklook/?url=${encodedModelUrl}&title=${productName}`;
   };
   
   // Generate deep link for Android Scene Viewer
@@ -23,8 +27,12 @@ const QRCodeGenerator = ({ iosUrl, androidUrl }) => {
   };
   
   const handleDownloadQR = () => {
-    const svg = document.getElementById('ar-qr-code');
-    if (!svg) return;
+    const refElement = resolvedRef.current;
+    if (!refElement) return;
+    
+    // Get the SVG element
+    const svgElement = refElement.querySelector('svg');
+    if (!svgElement) return;
     
     // Create a canvas element
     const canvas = document.createElement('canvas');
@@ -32,7 +40,7 @@ const QRCodeGenerator = ({ iosUrl, androidUrl }) => {
     
     // Create an image from the SVG
     const img = new Image();
-    const svgData = new XMLSerializer().serializeToString(svg);
+    const svgData = new XMLSerializer().serializeToString(svgElement);
     const svgBlob = new Blob([svgData], {type: 'image/svg+xml;charset=utf-8'});
     const url = URL.createObjectURL(svgBlob);
     
@@ -78,6 +86,7 @@ const QRCodeGenerator = ({ iosUrl, androidUrl }) => {
           <button 
             className={`qr-tab ${activeTab === 'ios' ? 'active' : ''}`}
             onClick={() => setActiveTab('ios')}
+            type="button"
           >
             iOS AR
           </button>
@@ -87,6 +96,7 @@ const QRCodeGenerator = ({ iosUrl, androidUrl }) => {
           <button 
             className={`qr-tab ${activeTab === 'android' ? 'active' : ''}`}
             onClick={() => setActiveTab('android')}
+            type="button"
           >
             Android AR
           </button>
@@ -94,13 +104,14 @@ const QRCodeGenerator = ({ iosUrl, androidUrl }) => {
       </div>
       
       <div className="qr-content">
-        <div className="qr-display">
+        <div className="qr-display" ref={resolvedRef}>
           <QRCodeSVG 
             id="ar-qr-code"
             value={getQRValue()}
             size={200}
             level="H"
             includeMargin={true}
+            title="AR QR Code"
           />
         </div>
         
@@ -124,11 +135,15 @@ const QRCodeGenerator = ({ iosUrl, androidUrl }) => {
         </div>
       </div>
       
-      <button className="qr-download-btn" onClick={handleDownloadQR}>
+      <button 
+        className="qr-download-btn" 
+        onClick={handleDownloadQR}
+        type="button"
+      >
         Download QR Code
       </button>
     </div>
   );
-};
+});
 
 export default QRCodeGenerator; 

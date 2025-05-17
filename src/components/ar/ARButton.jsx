@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, forwardRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import './ARButton.css';
 
-const ARButton = ({ iosUrl, androidUrl, productName }) => {
+const ARButton = forwardRef(({ iosUrl, androidUrl, productName }, ref) => {
   const [isIOS, setIsIOS] = useState(false);
   const [isAndroid, setIsAndroid] = useState(false);
   const [showQR, setShowQR] = useState(false);
@@ -23,13 +23,21 @@ const ARButton = ({ iosUrl, androidUrl, productName }) => {
     setArSupported(isARSupported);
   }, []);
   
+  const getIOSARLink = () => {
+    if (!iosUrl) return '';
+    // Create a URL to an HTML page with rel="ar" instead of direct USDZ link
+    const encodedModelUrl = encodeURIComponent(iosUrl);
+    const encodedTitle = encodeURIComponent(productName || 'Product');
+    return `${window.location.origin}/ar-quicklook/?url=${encodedModelUrl}&title=${encodedTitle}`;
+  };
+  
   const handleARClick = (e) => {
     e.preventDefault();
     e.stopPropagation();
     
     if (isIOS) {
-      // iOS devices can directly open AR Quick Look
-      window.location.href = iosUrl;
+      // iOS devices - redirect to special HTML page with rel="ar"
+      window.location.href = getIOSARLink();
     } else if (isAndroid) {
       // Android devices can use Scene Viewer
       window.location.href = `intent://arvr.google.com/scene-viewer/1.0?file=${androidUrl}&mode=ar_only#Intent;scheme=https;package=com.google.android.googlequicksearchbox;action=android.intent.action.VIEW;S.browser_fallback_url=https://developers.google.com/ar;end;`;
@@ -55,6 +63,8 @@ const ARButton = ({ iosUrl, androidUrl, productName }) => {
         className="ar-button" 
         onClick={handleARClick}
         title="View in AR"
+        type="button"
+        ref={ref}
       >
         <span className="ar-icon">📱</span>
         <span className="ar-text">View in AR</span>
@@ -63,33 +73,45 @@ const ARButton = ({ iosUrl, androidUrl, productName }) => {
       {showQR && (
         <div className="qr-modal" onClick={closeQRModal}>
           <div className="qr-content" onClick={(e) => e.stopPropagation()}>
-            <button className="close-btn" onClick={closeQRModal}>×</button>
+            <button className="close-btn" onClick={closeQRModal} type="button">×</button>
             <h3>Scan to view in AR</h3>
             <p>Use your mobile device to scan this QR code and view {productName} in augmented reality.</p>
             
             <div className="qr-tabs">
-              <button className={`qr-tab ${isIOS ? 'active' : ''}`} onClick={() => setIsIOS(true)}>iOS</button>
-              <button className={`qr-tab ${!isIOS ? 'active' : ''}`} onClick={() => setIsIOS(false)}>Android</button>
+              <button 
+                className={`qr-tab ${isIOS ? 'active' : ''}`} 
+                onClick={() => setIsIOS(true)}
+                type="button"
+              >
+                iOS
+              </button>
+              <button 
+                className={`qr-tab ${!isIOS ? 'active' : ''}`} 
+                onClick={() => setIsIOS(false)}
+                type="button"
+              >
+                Android
+              </button>
             </div>
             
             <div className="qr-code-container">
-            <QRCodeSVG 
-              value={isIOS ? iosUrl : androidUrl} 
-              size={200}
-              level="H"
-              includeMargin={true}
-            />
-
+              <QRCodeSVG 
+                value={isIOS ? getIOSARLink() : androidUrl} 
+                size={200}
+                level="H"
+                includeMargin={true}
+                title={`${productName} AR QR Code`}
+              />
             </div>
             
             <p className="qr-instructions">
               {isIOS ? 'iOS 12+ required for AR Quick Look' : 'Android 8.0+ required for AR View'}
             </p>
-          </div>9
+          </div>
         </div>
       )}
     </>
   );
-};
+});
 
 export default ARButton;

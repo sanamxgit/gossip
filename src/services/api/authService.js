@@ -21,7 +21,7 @@ api.interceptors.request.use(
 const authService = {
   // Register a new user
   register: async (userData) => {
-    try {
+    try { 
       const response = await api.post('/api/auth/register', userData);
       if (response.data.token) {
         localStorage.setItem('token', response.data.token);
@@ -62,6 +62,12 @@ const authService = {
   getCurrentUser: async () => {
     try {
       const response = await api.get('/api/auth/me');
+      
+      // Store user data in localStorage for other components to access
+      if (response.data && response.data._id) {
+        localStorage.setItem('userData', JSON.stringify(response.data));
+      }
+      
       return response.data;
     } catch (error) {
       console.error('Get current user error:', error.response?.data || error.message);
@@ -96,13 +102,17 @@ const authService = {
     try {
       const token = localStorage.getItem('token');
       if (!token) {
+        console.log("No token found in localStorage");
         return false;
       }
       
+      console.log("Validating token:", token.substring(0, 15) + "...");
       const response = await api.get('/api/auth/validate-token');
+      console.log("Token validation response:", response.data);
       return response.data.valid;
     } catch (error) {
       console.error('Token validation error:', error.response?.data || error.message);
+      console.log("Removing invalid token from localStorage");
       localStorage.removeItem('token');
       localStorage.removeItem('userRole');
       return false;

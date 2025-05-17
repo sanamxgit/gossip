@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test API Endpoint</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        textarea {
+            width: 100%;
+            height: 200px;
+            margin-bottom: 10px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        #response {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            background-color: #f8f8f8;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Test Icon Categories Update API</h1>
+    
+    <h2>Request</h2>
+    <form id="testForm">
+        <div>
+            <label for="title">Title:</label>
+            <input type="text" id="title" value="Categories" style="width: 100%; margin-bottom: 10px;">
+        </div>
+        
+        <div>
+            <label for="type">Type:</label>
+            <input type="text" id="type" value="icon-categories" style="width: 100%; margin-bottom: 10px;">
+        </div>
+        
+        <div>
+            <label for="order">Order:</label>
+            <input type="number" id="order" value="4" style="width: 100%; margin-bottom: 10px;">
+        </div>
+        
+        <div>
+            <label for="active">Active:</label>
+            <input type="checkbox" id="active" checked>
+        </div>
+        
+        <div>
+            <label for="content">Content (JSON):</label>
+            <textarea id="content">{"categories":[{"name":"Mobile & Devices","imageUrl":"/uploads/placeholder.svg","link":"/category/mobile-devices"},{"name":"Watch","imageUrl":"/uploads/placeholder.svg","link":"/category/watch"}]}</textarea>
+        </div>
+        
+        <button type="button" id="submitBtn">Send PUT Request</button>
+    </form>
+    
+    <h2>Response</h2>
+    <div id="response"></div>
+
+    <script>
+        document.getElementById('submitBtn').addEventListener('click', async () => {
+            const title = document.getElementById('title').value;
+            const type = document.getElementById('type').value;
+            const order = parseInt(document.getElementById('order').value);
+            const active = document.getElementById('active').checked;
+            const content = document.getElementById('content').value;
+            
+            // Validate JSON
+            try {
+                JSON.parse(content);
+            } catch (e) {
+                document.getElementById('response').textContent = `Invalid JSON: ${e.message}`;
+                return;
+            }
+            
+            const responseDiv = document.getElementById('response');
+            responseDiv.textContent = 'Sending request...';
+            
+            try {
+                const response = await fetch('http://localhost:5000/api/homepage/sections/admin/4', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer sample-token'
+                    },
+                    body: JSON.stringify({
+                        title,
+                        type,
+                        content,
+                        order,
+                        active
+                    })
+                });
+                
+                const data = await response.json();
+                responseDiv.textContent = `Status: ${response.status}\n\nResponse:\n${JSON.stringify(data, null, 2)}`;
+            } catch (error) {
+                responseDiv.textContent = `Error: ${error.message}`;
+            }
+        });
+    </script>
+</body>
+</html> 

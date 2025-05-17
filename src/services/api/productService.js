@@ -3,7 +3,11 @@ import { API_URL } from '../../config';
 
 // Create an axios instance with the base URL for product API calls
 const productApi = axios.create({
-  baseURL: `${API_URL}/api/products`
+  baseURL: `${API_URL}/api/products`,
+  withCredentials: true,
+  headers: {
+    'Content-Type': 'application/json'
+  }
 });
 
 // Add a request interceptor to include the token in the headers for authenticated routes
@@ -25,7 +29,7 @@ const productService = {
   // Get all products with optional filtering and pagination
   getAllProducts: async (params = {}) => {
     try {
-      const response = await productApi.get('', { params });
+      const response = await productApi.get('/', { params });
       return response.data;
     } catch (error) {
       console.error('Error fetching products:', error);
@@ -84,6 +88,11 @@ const productService = {
       return response.data;
     } catch (error) {
       console.error('Error fetching featured products:', error);
+      // Return empty products array on 404
+      if (error.response && error.response.status === 404) {
+        console.log('Featured products endpoint not available, returning empty array');
+        return { products: [] };
+      }
       throw error;
     }
   },
@@ -95,6 +104,11 @@ const productService = {
       return response.data;
     } catch (error) {
       console.error('Error fetching new arrivals:', error);
+      // Return empty products array on 404
+      if (error.response && error.response.status === 404) {
+        console.log('New arrivals endpoint not available, returning empty array');
+        return { products: [] };
+      }
       throw error;
     }
   },
@@ -106,6 +120,11 @@ const productService = {
       return response.data;
     } catch (error) {
       console.error('Error fetching best sellers:', error);
+      // Return empty products array on 404
+      if (error.response && error.response.status === 404) {
+        console.log('Best sellers endpoint not available, returning empty array');
+        return { products: [] };
+      }
       throw error;
     }
   },
@@ -133,6 +152,11 @@ const productService = {
       return response.data;
     } catch (error) {
       console.error(`Error fetching related products for ${productId}:`, error);
+      // Return an empty array instead of throwing the error
+      if (error.response && error.response.status === 404) {
+        console.log(`No related products endpoint available for ${productId}, returning empty array`);
+        return { products: [] };
+      }
       throw error;
     }
   },
@@ -238,32 +262,53 @@ const productService = {
 
   // SELLER METHODS
 
-  // Create a new product (seller/admin only)
+  // Create a product (seller/admin only)
   createProduct: async (productData) => {
     try {
-      // Use FormData to handle image uploads
-      const formData = new FormData();
+      console.log("Creating product with data:", productData)
       
-      // Process product data and images
-      Object.keys(productData).forEach(key => {
-        if (key === 'images' && Array.isArray(productData.images)) {
-          // Handle multiple image uploads
-          productData.images.forEach((image, index) => {
-            if (image instanceof File) {
-              formData.append(`images`, image);
+      // If category is provided as an object with id, extract the id
+      if (productData.category && typeof productData.category === 'object' && productData.category._id) {
+        productData.category = productData.category._id;
+      }
+      
+      // Handle FormData for file uploads
+      let requestData = productData;
+      
+      // If not already FormData and contains images, convert to FormData
+      if (!(productData instanceof FormData) && productData.images) {
+        const formData = new FormData();
+        
+        // Add all other product data
+        Object.keys(productData).forEach(key => {
+          if (key !== 'images') {
+            // Handle nested objects like specifications
+            if (typeof productData[key] === 'object' && !(productData[key] instanceof File)) {
+              formData.append(key, JSON.stringify(productData[key]));
+            } else {
+              formData.append(key, productData[key]);
             }
+          }
+        });
+        
+        // Add images
+        if (Array.isArray(productData.images)) {
+          productData.images.forEach(image => {
+            formData.append('images', image);
           });
-        } else if (typeof productData[key] === 'object' && productData[key] !== null) {
-          // Convert objects/arrays to JSON strings for FormData
-          formData.append(key, JSON.stringify(productData[key]));
-        } else {
-          formData.append(key, productData[key]);
         }
-      });
+        
+        requestData = formData;
+      }
       
-      const response = await productApi.post('/seller', formData, {
+      // Log the formData contents for debugging
+      for (let pair of requestData.entries()) {
+        console.log(`${pair[0]}: ${pair[1]}`);
+      }
+      
+      const response = await productApi.post('/', requestData, {
         headers: {
-          'Content-Type': 'multipart/form-data'
+          'Content-Type': requestData instanceof FormData ? 'multipart/form-data' : 'application/json',
         }
       });
       
@@ -277,32 +322,61 @@ const productService = {
   // Update a product (seller/admin only)
   updateProduct: async (productId, productData) => {
     try {
-      // Use FormData to handle image uploads
-      const formData = new FormData();
+      console.log("Updating product with data:", productData)
       
-      // Process product data and images
-      Object.keys(productData).forEach(key => {
-        if (key === 'images' && Array.isArray(productData.images)) {
-          // Handle multiple image uploads
-          productData.images.forEach((image, index) => {
+      // If category is provided as an object with id, extract the id
+      if (productData.category && typeof productData.category === 'object' && productData.category._id) {
+        productData.category = productData.category._id;
+      }
+      
+      // Handle FormData for file uploads
+      let requestData = productData;
+      
+      // If not already FormData and contains images, convert to FormData
+      if (!(productData instanceof FormData) && productData.images) {
+        const formData = new FormData();
+        
+        // Add all other product data
+        Object.keys(productData).forEach(key => {
+          if (key !== 'images') {
+            // Handle nested objects like specifications
+            if (typeof productData[key] === 'object' && !(productData[key] instanceof File) && key !== 'colors') {
+              formData.append(key, JSON.stringify(productData[key]));
+            } else if (key === 'colors') {
+              formData.append('colors', JSON.stringify(productData.colors));
+            } else {
+              formData.append(key, productData[key]);
+            }
+          }
+        });
+        
+        // Add images - only append file objects, not string URLs
+        if (Array.isArray(productData.images)) {
+          productData.images.forEach(image => {
             if (image instanceof File) {
-              formData.append(`images`, image);
+              formData.append('images', image);
             } else if (typeof image === 'string') {
-              // Existing image URLs
+              // For existing image URLs, add them separately
               formData.append('existingImages', image);
             }
           });
-        } else if (typeof productData[key] === 'object' && productData[key] !== null) {
-          // Convert objects/arrays to JSON strings for FormData
-          formData.append(key, JSON.stringify(productData[key]));
-        } else {
-          formData.append(key, productData[key]);
         }
-      });
+        
+        requestData = formData;
+      }
       
-      const response = await productApi.put(`/seller/${productId}`, formData, {
+      // Log the formData contents for debugging
+      if (requestData instanceof FormData) {
+        console.log("Form data entries:");
+        for (let pair of requestData.entries()) {
+          console.log(`${pair[0]}: ${typeof pair[1] === 'object' ? 'File object' : pair[1]}`);
+        }
+      }
+      
+      // Use the correct endpoint format - /:id instead of /seller/:id
+      const response = await productApi.put(`/${productId}`, requestData, {
         headers: {
-          'Content-Type': 'multipart/form-data'
+          'Content-Type': requestData instanceof FormData ? 'multipart/form-data' : 'application/json',
         }
       });
       
@@ -327,11 +401,37 @@ const productService = {
   // Get seller's products
   getSellerProducts: async (params = {}) => {
     try {
-      const response = await productApi.get('/seller', { params });
+      console.log("Getting seller products with token:", localStorage.getItem('token'))
+      
+      // Use the seller/:sellerId route instead with the current user's ID
+      // Get user ID from token or localStorage
+      const userData = localStorage.getItem('userData');
+      let userId = null;
+      
+      if (userData) {
+        try {
+          userId = JSON.parse(userData)._id;
+        } catch (e) {
+          console.log("Could not parse user data from localStorage");
+        }
+      }
+      
+      // If we have a user ID, use it. Otherwise fall back to /seller/me
+      const endpoint = userId ? `/seller/${userId}` : '/seller/me';
+      console.log("Using endpoint:", endpoint);
+      
+      const response = await productApi.get(endpoint, { params });
       return response.data;
     } catch (error) {
       console.error('Error fetching seller products:', error);
-      // Return empty array as fallback
+      console.error('Error details:', error.response?.data || 'No detailed error information');
+      
+      // Check if it's an authentication error
+      if (error.response?.status === 401) {
+        console.error('Authentication error - token may be invalid');
+      }
+      
+      // Return empty array as fallback instead of throwing
       return { products: [] };
     }
   },

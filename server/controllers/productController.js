@@ -104,11 +104,13 @@ const createProduct = async (req, res) => {
       title,
       description,
       price,
+      originalPrice,
       stock,
       category,
       brand,
       specifications,
-      arModels
+      arModels,
+      colors
     } = req.body;
 
     // Get image paths from file upload
@@ -118,18 +120,21 @@ const createProduct = async (req, res) => {
       title,
       description,
       price: Number(price),
+      originalPrice: originalPrice ? Number(originalPrice) : undefined,
       stock: Number(stock),
       images,
       category,
       brand,
       seller: req.user._id,
-      specifications: specifications ? JSON.parse(specifications) : {},
-      arModels: arModels ? JSON.parse(arModels) : {}
+      specifications: specifications ? (typeof specifications === 'string' ? JSON.parse(specifications) : specifications) : {},
+      arModels: arModels ? (typeof arModels === 'string' ? JSON.parse(arModels) : arModels) : {},
+      colors: colors ? (typeof colors === 'string' ? JSON.parse(colors) : colors) : []
     });
 
     const createdProduct = await product.save();
     res.status(201).json(createdProduct);
   } catch (error) {
+    console.error('Error creating product:', error);
     res.status(400).json({ message: error.message });
   }
 };
@@ -143,11 +148,14 @@ const updateProduct = async (req, res) => {
       title,
       description,
       price,
+      originalPrice,
       stock,
       category,
       brand,
       specifications,
-      arModels
+      arModels,
+      colors,
+      existingImages
     } = req.body;
 
     const product = await Product.findById(req.params.id);
@@ -165,28 +173,60 @@ const updateProduct = async (req, res) => {
     product.title = title || product.title;
     product.description = description || product.description;
     product.price = price !== undefined ? Number(price) : product.price;
+    product.originalPrice = originalPrice !== undefined ? Number(originalPrice) : product.originalPrice;
     product.stock = stock !== undefined ? Number(stock) : product.stock;
     product.category = category || product.category;
     product.brand = brand || product.brand;
     
     // Handle specifications
     if (specifications) {
-      product.specifications = JSON.parse(specifications);
+      product.specifications = typeof specifications === 'string' 
+        ? JSON.parse(specifications) 
+        : specifications;
     }
     
     // Handle AR models
     if (arModels) {
-      product.arModels = JSON.parse(arModels);
+      product.arModels = typeof arModels === 'string' 
+        ? JSON.parse(arModels) 
+        : arModels;
     }
     
-    // Handle images if new ones are uploaded
-    if (req.files && req.files.length > 0) {
-      product.images = req.files.map(file => file.path);
+    // Handle colors
+    if (colors) {
+      product.colors = typeof colors === 'string' 
+        ? JSON.parse(colors) 
+        : colors;
     }
+    
+    // Handle images
+    let updatedImages = [...product.images];
+    
+    // Keep existing images if specified
+    if (existingImages) {
+      // If a single string is passed
+      if (typeof existingImages === 'string') {
+        updatedImages = [existingImages];
+      } 
+      // If an array of strings is passed
+      else if (Array.isArray(existingImages)) {
+        updatedImages = existingImages;
+      }
+    }
+    
+    // Add newly uploaded images
+    if (req.files && req.files.length > 0) {
+      const newImages = req.files.map(file => file.path);
+      updatedImages = [...updatedImages, ...newImages];
+    }
+    
+    // Update the product images
+    product.images = updatedImages;
 
     const updatedProduct = await product.save();
     res.json(updatedProduct);
   } catch (error) {
+    console.error('Error updating product:', error);
     res.status(400).json({ message: error.message });
   }
 };

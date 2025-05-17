@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const productController = require('../controllers/productController');
 const { protect, seller, admin } = require('../middleware/authMiddleware');
-const upload = require('../middleware/uploadMiddleware');
+const { upload } = require('../middleware/uploadMiddleware');
 
 // @route   GET /api/products
 // @desc    Get all products
@@ -44,17 +44,6 @@ router.get('/:id', productController.getProductById);
 // @access  Private/Seller
 router.post(
   '/',
-  protect,
-  seller,
-  upload.array('images', 5),
-  productController.createProduct
-);
-
-// @route   POST /api/products/seller
-// @desc    Create a product (seller route)
-// @access  Private/Seller
-router.post(
-  '/seller',
   protect,
   seller,
   upload.array('images', 5),

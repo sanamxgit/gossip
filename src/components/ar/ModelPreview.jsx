@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import QRCodeGenerator from './QRCodeGenerator';
 import './ModelPreview.css';
 
@@ -6,6 +6,7 @@ const ModelPreview = ({ modelUrl, modelType, showQRCode = true }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [modelValid, setModelValid] = useState(false);
+  const qrCodeRef = useRef(null);
 
   useEffect(() => {
     if (!modelUrl) {
@@ -17,6 +18,13 @@ const ModelPreview = ({ modelUrl, modelType, showQRCode = true }) => {
     const checkModel = async () => {
       setLoading(true);
       setError(null);
+      
+      // Skip validation for blob URLs as HEAD requests aren't supported
+      if (modelUrl.startsWith('blob:')) {
+        setModelValid(true);
+        setLoading(false);
+        return;
+      }
       
       try {
         const response = await fetch(modelUrl, { method: 'HEAD' });
@@ -36,6 +44,12 @@ const ModelPreview = ({ modelUrl, modelType, showQRCode = true }) => {
 
     checkModel();
   }, [modelUrl]);
+
+  // Generate AR Quick Look HTML URL for iOS
+  const getQuickLookURL = (modelUrl) => {
+    const encodedModelUrl = encodeURIComponent(modelUrl);
+    return `${window.location.origin}/ar-quicklook/?url=${encodedModelUrl}&title=3D%20Model`;
+  };
 
   if (loading) {
     return (
@@ -69,8 +83,8 @@ const ModelPreview = ({ modelUrl, modelType, showQRCode = true }) => {
       <div className="model-preview usdz">
         <p>iOS AR Model (USDZ)</p>
         <a 
-          href={modelUrl} 
-          rel="ar"
+          href={getQuickLookURL(modelUrl)} 
+          rel="noreferrer"
           target="_blank"
           className="ar-preview-link"
         >
@@ -83,7 +97,7 @@ const ModelPreview = ({ modelUrl, modelType, showQRCode = true }) => {
           <p>Model URL: <a href={modelUrl} target="_blank" rel="noopener noreferrer">{modelUrl}</a></p>
         </div>
         
-        {showQRCode && <QRCodeGenerator iosUrl={modelUrl} />}
+        {showQRCode && <QRCodeGenerator iosUrl={modelUrl} ref={qrCodeRef} />}
       </div>
     );
   }
@@ -108,7 +122,7 @@ const ModelPreview = ({ modelUrl, modelType, showQRCode = true }) => {
           <p>Model URL: <a href={modelUrl} target="_blank" rel="noopener noreferrer">{modelUrl}</a></p>
         </div>
         
-        {showQRCode && <QRCodeGenerator androidUrl={modelUrl} />}
+        {showQRCode && <QRCodeGenerator androidUrl={modelUrl} ref={qrCodeRef} />}
       </div>
     );
   }

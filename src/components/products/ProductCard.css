@@ -60,7 +60,7 @@
 }
 
 .shop-now-btn {
-  background-color: var(--primary-color);
+  background-color: #000000;
   color: white;
   border: none;
   border-radius: 4px;
@@ -72,7 +72,7 @@
 }
 
 .shop-now-btn:hover {
-  background-color: #5a3890; /* Darker shade of primary */
+  background-color: var(--primary-color); /* Brand color on hover */
 }
 
 /* Original quick actions (optional) */
@@ -95,8 +95,8 @@
 
 .quick-add-btn {
   padding: 0.5rem;
-  background-color: white;
-  color: var(--primary-color);
+  background-color: #000000;
+  color: white;
   border: none;
   border-radius: 4px;
   font-size: 0.85rem;
@@ -106,7 +106,7 @@
 }
 
 .quick-add-btn:hover {
-  background-color: var(--secondary-color);
+  background-color: var(--primary-color);
 }
 
 .product-card-content {
@@ -146,6 +146,50 @@
   text-decoration: line-through;
   color: var(--light-text);
   font-size: 0.9rem;
+}
+
+/* Discount label */
+.discount-label {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background-color: #ff4d4d;
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 2px;
+  z-index: 2;
+}
+
+/* AR Available label */
+.ar-available {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background-color: #000;
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 2px;
+  z-index: 2;
+}
+
+/* Display color options */
+.product-colors {
+  display: flex;
+  gap: 5px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.color-option {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
 }
 
 @media (max-width: 992px) {

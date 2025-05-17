@@ -300,6 +300,51 @@ const cancelOrder = async (req, res) => {
   }
 };
 
+// @desc    Get seller's orders
+// @route   GET /api/orders/seller
+// @access  Private/Seller
+const getSellerOrders = async (req, res) => {
+  try {
+    const pageSize = Number(req.query.pageSize) || 10;
+    const page = Number(req.query.page) || 1;
+    
+    // Find orders where at least one item has the current user as seller
+    const ordersWithSellerItems = await Order.find({
+      'orderItems.seller': req.user._id
+    })
+      .populate('user', 'username email')
+      .sort({ createdAt: -1 })
+      .limit(pageSize)
+      .skip(pageSize * (page - 1));
+    
+    const count = await Order.countDocuments({
+      'orderItems.seller': req.user._id
+    });
+    
+    // For each order, filter out items not belonging to this seller
+    const sellerOrders = ordersWithSellerItems.map(order => {
+      // Create a copy of the order to avoid modifying the original
+      const orderObj = order.toObject();
+      
+      // Filter items to only include those belonging to the seller
+      orderObj.orderItems = orderObj.orderItems.filter(
+        item => item.seller.toString() === req.user._id.toString()
+      );
+      
+      return orderObj;
+    });
+    
+    res.json({
+      orders: sellerOrders,
+      page,
+      pages: Math.ceil(count / pageSize),
+      count,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   createOrder,
   getOrderById,
@@ -309,4 +354,5 @@ module.exports = {
   getOrders,
   updateOrderStatus,
   cancelOrder,
+  getSellerOrders,
 }; 

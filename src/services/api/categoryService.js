@@ -37,7 +37,7 @@ const categoryService = {
 
   // Get top-level categories (categories with no parent)
   getTopLevelCategories: async () => {
-    const response = await api.get('/top-level');
+    const response = await api.get('/top');
     return response.data;
   },
 

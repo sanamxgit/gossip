@@ -3,6 +3,8 @@
 import React, { useState, useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import { useAuth } from "../contexts/AuthContext"
+import homepageSectionService from "../services/api/homepageSectionService"
+import productService from "../services/api/productService"
 import "./AdminDashboard.css"
 
 const AdminDashboard = () => {
@@ -26,11 +28,15 @@ const AdminDashboard = () => {
   
   // State for parsed content based on section type
   const [bannerData, setBannerData] = useState({
-    image: "",
+    slides: [
+      {
+        imageUrl: "",
     title: "",
     subtitle: "",
     buttonText: "",
     buttonLink: "",
+      }
+    ]
   })
   
   const [categoriesData, setCategoriesData] = useState({
@@ -47,6 +53,17 @@ const AdminDashboard = () => {
 
   // Create refs for each category file input
   const categoryFileInputRefs = useRef([])
+
+  // Add state for product search
+  const [productSearch, setProductSearch] = useState("")
+  const [searchResults, setSearchResults] = useState([])
+  const [isSearching, setIsSearching] = useState(false)
+
+  // Add state for selected products
+  const [selectedProducts, setSelectedProducts] = useState([])
+
+  // Add state for all products
+  const [allProducts, setAllProducts] = useState([]);
 
   useEffect(() => {
     // Check if user is an admin
@@ -71,30 +88,188 @@ const AdminDashboard = () => {
     // Parse content based on section type when sectionFormData changes
     if (sectionFormData.content && sectionFormData.type) {
       try {
-        const contentObj = JSON.parse(sectionFormData.content)
+        const contentObj = typeof sectionFormData.content === 'string' 
+          ? JSON.parse(sectionFormData.content) 
+          : sectionFormData.content;
         
         if (sectionFormData.type === "banner") {
-          setBannerData(contentObj)
+          // Convert old format to new slides format if needed
+          if (!contentObj.slides && (contentObj.image || contentObj.title)) {
+            setBannerData({
+              slides: [{
+                imageUrl: contentObj.image || '',
+                title: contentObj.title || '',
+                subtitle: contentObj.subtitle || '',
+                buttonText: contentObj.buttonText || '',
+                buttonLink: contentObj.buttonLink || '',
+              }]
+            });
+          } else {
+            setBannerData(contentObj);
+          }
         } else if (sectionFormData.type === "categories") {
-          setCategoriesData(contentObj)
+          setCategoriesData(contentObj);
         } else if (sectionFormData.type === "products") {
-          setProductsData(contentObj)
+          setProductsData(contentObj);
+          // If we have product IDs, populate selectedProducts
+          if (contentObj.productIds && Array.isArray(contentObj.productIds)) {
+            setSelectedProducts(contentObj.productIds);
+          } else {
+            setSelectedProducts([]);
+          }
         } else if (sectionFormData.type === "icon-categories") {
-          setIconCategoriesData(contentObj)
+          setIconCategoriesData(contentObj);
         }
       } catch (error) {
-        console.error("Error parsing content:", error)
+        console.error("Error parsing content:", error);
       }
     }
-  }, [sectionFormData.content, sectionFormData.type])
+  }, [sectionFormData.content, sectionFormData.type]);
+
+  // Get default sections when no sections are available
+  const getDefaultSections = () => {
+    return [
+      {
+        id: 1,
+        title: "Welcome Banner",
+        type: "banner",
+        content: {
+          slides: [
+            {
+              imageUrl: "/placeholder.svg?height=400&width=1200&text=Welcome",
+              title: "Welcome to Our Store",
+              subtitle: "Discover amazing products at great prices",
+              buttonText: "Shop Now",
+              buttonLink: "/products"
+            }
+          ]
+        },
+        order: 1,
+        active: true
+      },
+      {
+        id: 2,
+        title: "Featured Categories",
+        type: "categories",
+        content: {
+          categories: [
+            {
+              name: "Category 1",
+              description: "Explore Category 1",
+              image: "/placeholder.svg?height=200&width=200&text=Category1"
+            },
+            {
+              name: "Category 2",
+              description: "Explore Category 2",
+              image: "/placeholder.svg?height=200&width=200&text=Category2"
+            }
+          ]
+        },
+        order: 2,
+        active: true
+      },
+      {
+        id: 3,
+        title: "Featured Products",
+        type: "products",
+        content: {
+          productIds: [1, 2, 3]
+        },
+        order: 3,
+        active: true
+      }
+    ];
+  };
 
   const fetchAdminData = async () => {
     setIsLoading(true)
     try {
-      // In a real app, fetch data from API
-      // Simulate API calls
-      setTimeout(() => {
-        // Mock users
+      // Fetch homepage sections from API
+      try {
+        const sections = await homepageSectionService.getAdminSections();
+        if (sections && sections.length > 0) {
+          console.log('Loaded homepage sections from API:', sections);
+          setHomePageSections(sections);
+          
+          // Also update localStorage with latest from server
+          localStorage.setItem('homePageSections', JSON.stringify(sections));
+          console.log('Updated localStorage with latest sections from API');
+          
+          // Store mapping of order to MongoDB IDs
+          const idsMap = {};
+          sections.forEach(section => {
+            if (section._id && section.order) {
+              idsMap[section.order] = section._id;
+            }
+          });
+          localStorage.setItem('sectionMongoIds', JSON.stringify(idsMap));
+        } else {
+          // No sections from API - check if we should use localStorage or defaults
+          const shouldUseDefaults = window.confirm(
+            "No sections found in database. Would you like to reset to default sections? " +
+            "Click OK to use defaults, or Cancel to use any locally saved sections."
+          );
+          
+          if (shouldUseDefaults) {
+            // Clear localStorage and use defaults
+            localStorage.removeItem('homePageSections');
+            localStorage.removeItem('sectionMongoIds');
+            const defaultSections = getDefaultSections();
+            setHomePageSections(defaultSections);
+          } else {
+            // Try localStorage as fallback
+            const savedSections = localStorage.getItem('homePageSections');
+            if (savedSections) {
+              try {
+                const parsedSections = JSON.parse(savedSections);
+                console.log('Loaded homepage sections from localStorage:', parsedSections);
+                setHomePageSections(parsedSections);
+              } catch (error) {
+                console.error('Error parsing saved sections:', error);
+                // Use default sections if parsing fails
+                setHomePageSections(getDefaultSections());
+              }
+            } else {
+              // No localStorage data either - use defaults
+              setHomePageSections(getDefaultSections());
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching homepage sections:', error);
+        
+        // Ask user what to do
+        const shouldUseDefaults = window.confirm(
+          "Error connecting to database. Would you like to reset to default sections? " +
+          "Click OK to use defaults, or Cancel to use any locally saved sections."
+        );
+        
+        if (shouldUseDefaults) {
+          // Clear localStorage and use defaults
+          localStorage.removeItem('homePageSections');
+          localStorage.removeItem('sectionMongoIds');
+          const defaultSections = getDefaultSections();
+          setHomePageSections(defaultSections);
+        } else {
+          // Try localStorage as fallback
+          const savedSections = localStorage.getItem('homePageSections');
+          if (savedSections) {
+            try {
+              const parsedSections = JSON.parse(savedSections);
+              console.log('Loaded homepage sections from localStorage:', parsedSections);
+              setHomePageSections(parsedSections);
+            } catch (error) {
+              console.error('Error parsing saved sections:', error);
+              setHomePageSections(getDefaultSections());
+            }
+          } else {
+            setHomePageSections(getDefaultSections());
+          }
+        }
+      }
+
+      // Mock users and products data for the demo
+      // In a real app, you would fetch these from the API
         const mockUsers = [
           {
             id: 1,
@@ -103,25 +278,10 @@ const AdminDashboard = () => {
             role: "user",
             createdAt: new Date(Date.now() - 5000000000).toISOString(),
           },
-          {
-            id: 2,
-            email: "seller@example.com",
-            username: "Seller",
-            role: "seller",
-            storeName: "My Store",
-            createdAt: new Date(Date.now() - 8000000000).toISOString(),
-          },
-          {
-            id: 3,
-            email: "admin@example.com",
-            username: "Admin",
-            role: "admin",
-            createdAt: new Date(Date.now() - 10000000000).toISOString(),
-          },
+        // ... rest of mock users
         ]
         setUsers(mockUsers)
 
-        // Mock products
         const mockProducts = Array(5)
           .fill()
           .map((_, index) => ({
@@ -134,86 +294,7 @@ const AdminDashboard = () => {
           }))
         setProducts(mockProducts)
 
-        // Try to get homepage sections from localStorage first
-        const savedSections = localStorage.getItem('homePageSections')
-        
-        if (savedSections) {
-          try {
-            const parsedSections = JSON.parse(savedSections)
-            console.log('Loaded homepage sections from localStorage:', parsedSections)
-            setHomePageSections(parsedSections)
             setIsLoading(false)
-            return
-          } catch (error) {
-            console.error('Error parsing saved sections:', error)
-          }
-        }
-
-        // Mock homepage sections (fallback if nothing in localStorage)
-        const mockSections = [
-          {
-            id: 1,
-            title: "Main Banner",
-            type: "banner",
-            content: JSON.stringify({
-              image: "/placeholder.svg?height=400&width=800",
-              title: "Season Sale",
-              subtitle: "Special Offer",
-              buttonText: "Shop Now",
-              buttonLink: "/sale",
-            }),
-            order: 1,
-            active: true,
-          },
-          {
-            id: 2,
-            title: "Trending Categories",
-            type: "categories",
-            content: JSON.stringify({
-              categories: [
-                { name: "Furniture", description: "in your style", image: "/placeholder.svg?height=200&width=200" },
-                { name: "Lamp", description: "in your environment", image: "/placeholder.svg?height=200&width=200" },
-                { name: "Your skincare", description: "experts", image: "/placeholder.svg?height=200&width=200" },
-                { name: "Humidifier", description: "relief your skin", image: "/placeholder.svg?height=200&width=200" },
-              ],
-            }),
-            order: 2,
-            active: true,
-          },
-          {
-            id: 3,
-            title: "Flash Sale",
-            type: "products",
-            content: JSON.stringify({
-              productIds: [1, 2, 3, 4, 5],
-            }),
-            order: 3,
-            active: true,
-          },
-          {
-            id: 4,
-            title: "Category Icons", 
-            type: "icon-categories",
-            content: JSON.stringify({
-              categories: [
-                { name: "Mobile & Devices", icon: "📱", link: "/category/mobile-devices" },
-                { name: "Watch", icon: "⌚", link: "/category/watch" },
-                { name: "Accessories", icon: "��", link: "/category/accessories" },
-                { name: "Home & Decor", icon: "🏠", link: "/category/home-decor" },
-                { name: "Fashion", icon: "👕", link: "/category/fashion" },
-                { name: "Beauty", icon: "💄", link: "/category/beauty" },
-                { name: "Skin care product", icon: "✨", link: "/category/skincare" },
-                { name: "Skin care", icon: "🧴", link: "/category/skincare-2" },
-              ]
-            }),
-            order: 4,
-            active: true,
-          }
-        ]
-        setHomePageSections(mockSections)
-
-        setIsLoading(false)
-      }, 1000)
     } catch (error) {
       console.error("Error fetching admin data:", error)
       setIsLoading(false)
@@ -236,11 +317,15 @@ const AdminDashboard = () => {
     
     // Reset form data for each type
     setBannerData({
-      image: "",
+      slides: [
+        {
+          imageUrl: "",
       title: "",
       subtitle: "",
       buttonText: "",
       buttonLink: "",
+        }
+      ]
     })
     
     setCategoriesData({
@@ -259,81 +344,145 @@ const AdminDashboard = () => {
   }
 
   const handleEditSection = (section) => {
+    // Ensure we're using the MongoDB _id if available, or fallback to numeric id
+    const sectionId = section._id || section.id;
+    
+    console.log('Editing section:', {
+      id: sectionId,
+      title: section.title,
+      type: section.type
+    });
+    
     setSectionFormData({
-      id: section.id,
+      id: sectionId,  // Prefer MongoDB _id
       title: section.title,
       type: section.type,
-      content: section.content,
+      content: typeof section.content === 'string' ? section.content : JSON.stringify(section.content),
       order: section.order,
       active: section.active,
-    })
-    
-    // Parse content based on section type
+    });
+
+    // Parse content for specific section types
+    let contentObj;
     try {
-      const contentObj = JSON.parse(section.content)
-      
-      if (section.type === "banner") {
-        setBannerData({
-          image: contentObj.image || "",
-          title: contentObj.title || "",
-          subtitle: contentObj.subtitle || "",
-          buttonText: contentObj.buttonText || "",
-          buttonLink: contentObj.buttonLink || "",
-        })
-      } else if (section.type === "categories") {
-        setCategoriesData({
-          categories: contentObj.categories || [],
-        })
-      } else if (section.type === "products") {
-        setProductsData({
-          productIds: contentObj.productIds || [],
-        })
-      } else if (section.type === "icon-categories") {
-        setIconCategoriesData({
-          categories: contentObj.categories || [],
-        })
-      }
+      contentObj = typeof section.content === 'string' ? JSON.parse(section.content) : section.content;
     } catch (error) {
-      console.error("Error parsing section content:", error)
+      console.error("Error parsing section content:", error);
+      return;
+    }
       
-      // Reset form data for each type in case of error
       if (section.type === "banner") {
+      // Convert old format to new slides format if needed
+      if (!contentObj.slides && (contentObj.image || contentObj.title)) {
         setBannerData({
-          image: "",
-          title: "",
-          subtitle: "",
-          buttonText: "",
-          buttonLink: "",
-        })
-      } else if (section.type === "categories") {
-        setCategoriesData({
-          categories: [],
-        })
-      } else if (section.type === "products") {
-        setProductsData({
-          productIds: [],
-        })
-      } else if (section.type === "icon-categories") {
-        setIconCategoriesData({
-          categories: [],
-        })
+          slides: [{
+            imageUrl: contentObj.image || '',
+            title: contentObj.title || '',
+            subtitle: contentObj.subtitle || '',
+            buttonText: contentObj.buttonText || '',
+            buttonLink: contentObj.buttonLink || '',
+          }]
+        });
+      } else {
+        setBannerData(contentObj);
       }
+      } else if (section.type === "categories") {
+      setCategoriesData(contentObj);
+      } else if (section.type === "products") {
+      setProductsData(contentObj);
+      // If we have product IDs, populate selectedProducts
+      if (contentObj.productIds && Array.isArray(contentObj.productIds)) {
+        setSelectedProducts(contentObj.productIds);
+      } else {
+        setSelectedProducts([]);
+      }
+      } else if (section.type === "icon-categories") {
+      setIconCategoriesData(contentObj);
     }
     
-    setShowSectionForm(true)
-  }
+    setShowSectionForm(true);
+  };
 
-  const handleDeleteSection = (sectionId) => {
+  const handleDeleteSection = async (sectionId) => {
     if (window.confirm("Are you sure you want to delete this section?")) {
-      // In a real app, make API call to delete section
-      setHomePageSections((prevSections) => prevSections.filter((s) => s.id !== sectionId))
+      try {
+        // Delete from API
+        await homepageSectionService.deleteSection(sectionId);
+        
+        // Update local state - filter by either id or _id
+        setHomePageSections((prevSections) => 
+          prevSections.filter((s) => s.id !== sectionId && s._id !== sectionId)
+        );
+        
+        // Also update localStorage
+        const updatedSections = homePageSections.filter(s => s.id !== sectionId && s._id !== sectionId);
+        localStorage.setItem('homePageSections', JSON.stringify(updatedSections));
+        console.log('Updated localStorage after deletion');
+      } catch (error) {
+        console.error("Error deleting section:", error);
+        alert("Failed to delete section. Please try again.");
+        
+        // Fallback: Delete from local state only if API fails
+        setHomePageSections((prevSections) => 
+          prevSections.filter((s) => s.id !== sectionId && s._id !== sectionId)
+        );
+        
+        // Also update localStorage
+        const updatedSections = homePageSections.filter(s => s.id !== sectionId && s._id !== sectionId);
+        localStorage.setItem('homePageSections', JSON.stringify(updatedSections));
+      }
     }
   }
 
-  const handleToggleSection = (sectionId) => {
-    setHomePageSections((prevSections) =>
-      prevSections.map((section) => (section.id === sectionId ? { ...section, active: !section.active } : section)),
-    )
+  const handleToggleSection = async (sectionId) => {
+    try {
+      // Find the section to toggle - check both id and _id
+      const sectionToToggle = homePageSections.find(section => 
+        section.id === sectionId || section._id === sectionId
+      );
+      
+      if (!sectionToToggle) {
+        console.error(`Section not found for toggling with ID: ${sectionId}`);
+        return;
+      }
+      
+      // Create updated section data
+      const updatedSection = {
+        ...sectionToToggle,
+        active: !sectionToToggle.active
+      };
+      
+      // Update in API
+      await homepageSectionService.updateSection(sectionId, updatedSection);
+      
+      // Update local state - check both id and _id
+      const updatedSections = homePageSections.map(section => 
+        (section.id === sectionId || section._id === sectionId) 
+          ? { ...section, active: !section.active } 
+          : section
+      );
+      
+      setHomePageSections(updatedSections);
+      
+      // Also update localStorage
+      localStorage.setItem('homePageSections', JSON.stringify(updatedSections));
+      console.log('Updated localStorage after toggling section');
+    } catch (error) {
+      console.error("Error toggling section:", error);
+      alert("Failed to update section status. Please try again.");
+      
+      // Fallback: Update local state only if API fails
+      const updatedSections = homePageSections.map(section => 
+        (section.id === sectionId || section._id === sectionId) 
+          ? { ...section, active: !section.active } 
+          : section
+      );
+      
+      setHomePageSections(updatedSections);
+      
+      // Also update localStorage
+      localStorage.setItem('homePageSections', JSON.stringify(updatedSections));
+    }
   }
 
   const handleSectionFormChange = (e) => {
@@ -347,20 +496,28 @@ const AdminDashboard = () => {
     if (name === "type") {
       if (value === "banner") {
         setBannerData({
-          image: "",
+          slides: [
+            {
+              imageUrl: "",
           title: "",
           subtitle: "",
           buttonText: "",
           buttonLink: "",
-        })
+            }
+          ]
+        });
         setSectionFormData(prev => ({
           ...prev,
           content: JSON.stringify({
-            image: "",
+            slides: [
+              {
+                imageUrl: "",
             title: "",
             subtitle: "",
             buttonText: "",
             buttonLink: "",
+              }
+            ]
           })
         }))
       } else if (value === "categories") {
@@ -403,37 +560,235 @@ const AdminDashboard = () => {
     }
   }
   
-  // Handle banner data changes
-  const handleBannerChange = (e) => {
-    const { name, value } = e.target
-    const updatedBanner = { ...bannerData, [name]: value }
-    setBannerData(updatedBanner)
-    setSectionFormData(prev => ({
-      ...prev,
-      content: JSON.stringify(updatedBanner)
-    }))
-  }
-  
-  // Handle image upload for banner
-  const handleBannerImageUpload = (e) => {
-    const file = e.target.files[0]
-    if (file) {
-      // In a real app, upload the file to a server and get a permanent URL
-      // For now, use a placeholder URL that can be recognized
-      const fileName = file.name.replace(/\s+/g, '-').toLowerCase()
-      const imageUrl = `/uploads/${fileName}` // This simulates a server-side stored image
+  // Replace the handleBannerChange function to work with multiple slides
+  const handleBannerChange = (slideIndex, field, value) => {
+    setBannerData(prevData => {
+      const newSlides = [...prevData.slides];
+      newSlides[slideIndex] = {
+        ...newSlides[slideIndex],
+        [field]: value
+      };
       
-      // For testing, we'll use a public placeholder that actually loads
-      const demoUrl = `https://picsum.photos/800/400?random=${Date.now()}`
+      const newData = {
+        ...prevData,
+        slides: newSlides
+      };
       
-      const updatedBanner = { ...bannerData, image: demoUrl }
-      setBannerData(updatedBanner)
+      // Also update the form data to keep them in sync
       setSectionFormData(prev => ({
         ...prev,
-        content: JSON.stringify(updatedBanner)
-      }))
+        content: JSON.stringify(newData)
+      }));
+      
+      return newData;
+    });
+  };
+  
+  // Add a function to add a new banner slide
+  const handleAddBannerSlide = () => {
+    // Update the banner data with a new empty slide
+    setBannerData(prevData => {
+      const newData = {
+        ...prevData,
+        slides: [
+          ...prevData.slides,
+          {
+            imageUrl: "",
+            title: "",
+            subtitle: "",
+            buttonText: "",
+            buttonLink: ""
+          }
+        ]
+      };
+      
+      // Also update the form data to keep them in sync
+      setSectionFormData(prev => ({
+        ...prev,
+        content: JSON.stringify(newData)
+      }));
+      
+      console.log('Added new slide - updated banner data:', newData);
+      return newData;
+    });
+  };
+  
+  // Add a function to remove a banner slide
+  const handleRemoveBannerSlide = (slideIndex) => {
+    setBannerData(prevData => {
+      // Keep at least one slide
+      if (prevData.slides.length <= 1) return prevData;
+      
+      const newSlides = [...prevData.slides];
+      newSlides.splice(slideIndex, 1);
+      
+      const newData = {
+        ...prevData,
+        slides: newSlides
+      };
+      
+      // Also update the form data to keep them in sync
+      setSectionFormData(prev => ({
+        ...prev,
+        content: JSON.stringify(newData)
+      }));
+      
+      console.log('Removed slide at index', slideIndex, 'updated banner data:', newData);
+      return newData;
+    });
+  };
+  
+  // Replace handleBannerImageUpload with a function that handles both file upload and URL input
+  const handleBannerImageUpload = async (slideIndex, e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    try {
+      // Show uploading indicator
+      setBannerData(prevData => {
+        const newSlides = [...prevData.slides];
+        newSlides[slideIndex] = {
+          ...newSlides[slideIndex],
+          imageUrl: 'Uploading...'
+        };
+        return {
+          ...prevData,
+          slides: newSlides
+        };
+      });
+
+      // Upload the file to the server
+      console.log(`Starting upload for file: ${file.name} (${file.size} bytes)`);
+      const uploadResponse = await homepageSectionService.uploadSectionImage(file, 'banner');
+      
+      console.log('Upload complete. Response:', uploadResponse);
+      
+      if (uploadResponse && uploadResponse.fileUrl) {
+        console.log(`Banner image uploaded successfully to ${uploadResponse.fileUrl}`);
+        
+        // Choose the best URL option available
+        let imageUrl = uploadResponse.fileUrl;
+        
+        // Log all available URLs for debugging
+        if (uploadResponse.allUrls) {
+          console.log('All available URLs:', uploadResponse.allUrls);
+        }
+        
+        // Show additional info about the file
+        if (uploadResponse.fullPath) {
+          console.log('File saved at:', uploadResponse.fullPath);
+        }
+        
+        console.log('Using image URL:', imageUrl);
+        
+        // Update the banner data with the new image URL
+        setBannerData(prevData => {
+          const newSlides = [...prevData.slides];
+          newSlides[slideIndex] = {
+            ...newSlides[slideIndex],
+            imageUrl: imageUrl
+          };
+          
+          const newData = {
+            ...prevData,
+            slides: newSlides
+          };
+          
+          // Also update the form data to keep them in sync
+          setSectionFormData(prev => ({
+            ...prev,
+            content: JSON.stringify(newData)
+          }));
+          
+          console.log('Updated slide image at index', slideIndex, 'with URL:', imageUrl);
+          return newData;
+        });
+        
+        // Test image loading directly
+        try {
+          const testImg = new Image();
+          testImg.onload = () => console.log('Image verified to load successfully');
+          testImg.onerror = () => console.warn('Image failed to load during verification test');
+          testImg.src = imageUrl.startsWith('/') 
+            ? `${window.location.origin}${imageUrl}` 
+            : imageUrl;
+        } catch (imgTestError) {
+          console.warn('Image test failed:', imgTestError);
+        }
+      } else {
+        console.error('File upload failed - invalid response:', uploadResponse);
+        alert('File upload failed. Please try again.');
+        
+        // Reset to empty on failure
+        setBannerData(prevData => {
+          const newSlides = [...prevData.slides];
+          newSlides[slideIndex] = {
+            ...newSlides[slideIndex],
+            imageUrl: ''
+          };
+          return {
+            ...prevData,
+            slides: newSlides
+          };
+        });
+      }
+    } catch (error) {
+      console.error('Error uploading banner image:', error);
+      alert('Error uploading image: ' + (error.message || 'Unknown error'));
+      
+      // Reset to empty on error
+      setBannerData(prevData => {
+        const newSlides = [...prevData.slides];
+        newSlides[slideIndex] = {
+          ...newSlides[slideIndex],
+          imageUrl: ''
+        };
+        return {
+          ...prevData,
+          slides: newSlides
+        };
+      });
     }
-  }
+  };
+  
+  // Add URL input for banner images
+  const handleBannerImageUrlChange = (slideIndex, url) => {
+    if (!url) return;
+    
+    // Validate URL format
+    try {
+      // Check if URL is valid and points to an image
+      const urlPattern = /^(https?:\/\/)/i;
+      if (!urlPattern.test(url)) {
+        url = 'https://' + url;
+      }
+      
+      // Update state with the URL
+    setBannerData(prevData => {
+      const newSlides = [...prevData.slides];
+      newSlides[slideIndex] = {
+        ...newSlides[slideIndex],
+        imageUrl: url
+      };
+      
+      const newData = {
+        ...prevData,
+        slides: newSlides
+      };
+      
+      // Also update the form data to keep them in sync
+      setSectionFormData(prev => ({
+        ...prev,
+        content: JSON.stringify(newData)
+      }));
+      
+      return newData;
+    });
+    } catch (error) {
+      console.error('Error setting image URL:', error);
+      alert('Error setting image URL: ' + (error.message || 'Invalid URL'));
+    }
+  };
   
   // Handle category data changes
   const handleCategoryChange = (index, field, value) => {
@@ -481,81 +836,304 @@ const AdminDashboard = () => {
     }))
   }
   
-  // Handle image upload for category
-  const handleCategoryImageUpload = (index, e) => {
-    const file = e.target.files[0]
-    if (file) {
-      // In a real app, upload the file to a server and get a permanent URL
-      // For now, use a placeholder URL that can be recognized
-      const fileName = file.name.replace(/\s+/g, '-').toLowerCase()
-      const imageUrl = `/uploads/${fileName}` // This simulates a server-side stored image
+  // Update handleCategoryImageUpload to use FormData for real upload
+  const handleCategoryImageUpload = async (index, e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    try {
+      // Indicate upload in progress
+      handleCategoryChange(index, 'image', 'Uploading...');
       
-      // For testing, we'll use a public placeholder that actually loads
-      const demoUrl = `https://picsum.photos/200/200?random=${Date.now() + index}`
+      // Upload the file to the server
+      const uploadResponse = await homepageSectionService.uploadSectionImage(file, 'categories');
       
-      handleCategoryChange(index, 'image', demoUrl)
+      if (uploadResponse && uploadResponse.fileUrl) {
+        console.log(`Category image uploaded successfully to ${uploadResponse.fileUrl}`);
+        
+        // Store the server-provided URL
+        handleCategoryChange(index, 'image', uploadResponse.fileUrl);
+      } else {
+        console.error('File upload failed - no URL returned');
+        alert('File upload failed. Please try again.');
+        // Reset the image field
+        handleCategoryChange(index, 'image', '');
+      }
+    } catch (error) {
+      console.error('Error uploading category image:', error);
+      alert('Error uploading image: ' + (error.message || 'Unknown error'));
+      
+      // Reset the image field
+      handleCategoryChange(index, 'image', '');
+      
+      // DON'T use blob URLs - they don't persist and will be lost on reload
+      // const imageUrl = URL.createObjectURL(file);
+      // handleCategoryChange(index, 'image', imageUrl);
     }
-  }
+  };
   
-  // Handle product selection for flash sale
-  const handleProductSelectionChange = (e) => {
-    const selectedOptions = Array.from(e.target.selectedOptions, option => parseInt(option.value))
-    const updatedProductsData = { ...productsData, productIds: selectedOptions }
-    setProductsData(updatedProductsData)
+  // Add function to handle product search
+  const handleProductSearch = (e) => {
+    setProductSearch(e.target.value);
+    setIsSearching(true);
+    
+    const searchTerm = e.target.value.trim().toLowerCase();
+    
+    if (searchTerm === '') {
+      // If search is cleared, show all products
+      setSearchResults(allProducts);
+      setIsSearching(false);
+      return;
+    }
+    
+    // Filter products locally
+    const filteredProducts = allProducts.filter(product => 
+      product.name.toLowerCase().includes(searchTerm)
+    );
+    
+    setSearchResults(filteredProducts);
+    setIsSearching(false);
+  };
+
+  // Add function to handle product selection
+  const handleProductSelection = (productId) => {
+    // Toggle product selection and update productsData in one go
+    setSelectedProducts(prevSelected => {
+      const newSelectedProducts = prevSelected.includes(productId)
+        ? prevSelected.filter(id => id !== productId)
+        : [...prevSelected, productId];
+      
+      // Update productsData with the new selection
+      const updatedProductsData = { ...productsData, productIds: newSelectedProducts };
+      setProductsData(updatedProductsData);
+      
+      // Also update sectionFormData content to keep everything in sync
     setSectionFormData(prev => ({
       ...prev,
       content: JSON.stringify(updatedProductsData)
-    }))
-  }
+      }));
+      
+      return newSelectedProducts;
+    });
+  };
 
-  const handleSectionFormSubmit = (e) => {
-    e.preventDefault()
-
-    // Validate form
-    if (!sectionFormData.title || !sectionFormData.type) {
-      alert("Please fill in all required fields")
-      return
-    }
+  // Update handleSectionFormSubmit to use real API
+  const handleSectionFormSubmit = async (e) => {
+    e.preventDefault();
     
-    // Make sure content is properly set
-    let updatedSectionFormData = { ...sectionFormData }
-    
-    // Set the content based on the current section type
-    if (sectionFormData.type === "banner") {
-      updatedSectionFormData.content = JSON.stringify(bannerData)
-    } else if (sectionFormData.type === "categories") {
-      updatedSectionFormData.content = JSON.stringify(categoriesData)
-    } else if (sectionFormData.type === "products") {
-      updatedSectionFormData.content = JSON.stringify(productsData)
-    } else if (sectionFormData.type === "icon-categories") {
-      updatedSectionFormData.content = JSON.stringify(iconCategoriesData)
-    }
-
-    if (sectionFormData.id) {
-      // Update existing section
-      setHomePageSections((prevSections) =>
-        prevSections.map((s) => (s.id === sectionFormData.id ? updatedSectionFormData : s)),
-      )
-    } else {
-      // Add new section
-      const newSection = {
-        ...updatedSectionFormData,
-        id: Date.now(),
+    try {
+      // Process the content based on section type
+      let processedContent = {}; // Default to empty object
+      
+      if (sectionFormData.type === "banner") {
+        // Ensure bannerData has proper structure with slides array
+        console.log('Banner data before submission:', bannerData);
+        // Make sure we're sending the proper format with slides array
+        processedContent = {
+          slides: Array.isArray(bannerData.slides) ? bannerData.slides : [bannerData.slides]
+        };
+        console.log('Processed banner content:', processedContent);
+      } else if (sectionFormData.type === "categories") {
+        // Use categoriesData directly
+        processedContent = categoriesData;
+      } else if (sectionFormData.type === "products") {
+        // Use productsData directly
+        processedContent = productsData;
+        // Add debugging logs
+        console.log('Submitting products data:', {
+          selectedProducts,
+          productsDataState: productsData,
+          processedContent
+        });
+        
+        // Ensure the productIds array is included and populated correctly
+        if (!processedContent.productIds || !Array.isArray(processedContent.productIds)) {
+          processedContent.productIds = selectedProducts;
+          console.log('Fixed missing productIds in processed content:', processedContent);
+        }
+      } else if (sectionFormData.type === "icon-categories") {
+        // Process iconCategoriesData to ensure it has proper structure
+        if (iconCategoriesData && iconCategoriesData.categories) {
+          processedContent = {
+            categories: iconCategoriesData.categories.map(cat => ({
+              name: cat.name || '',
+              imageUrl: cat.imageUrl || '',
+              link: cat.link || ''
+            }))
+          };
+        } else {
+          // Handle case where iconCategoriesData is malformed
+          try {
+            const content = typeof sectionFormData.content === 'string' 
+              ? JSON.parse(sectionFormData.content) 
+              : sectionFormData.content || {};
+              
+            processedContent = {
+              categories: Array.isArray(content.categories) ? content.categories : []
+            };
+          } catch (error) {
+            console.error('Error parsing icon-categories content:', error);
+            processedContent = { categories: [] };
+          }
+        }
+      } else {
+        // Handle custom or other section types
+        if (typeof sectionFormData.content === 'string') {
+          try {
+            // Try to parse string content as JSON
+            processedContent = JSON.parse(sectionFormData.content);
+          } catch (error) {
+            console.error('Error parsing content:', error);
+            // If parsing fails, use as is
+            processedContent = { content: sectionFormData.content };
+          }
+        } else if (sectionFormData.content) {
+          // Use content directly if it's already an object
+          processedContent = sectionFormData.content;
+        }
       }
+      
+      // Prepare the section data
+      const sectionData = {
+        title: sectionFormData.title,
+        type: sectionFormData.type,
+        content: processedContent,
+        order: parseInt(sectionFormData.order),
+        active: sectionFormData.active,
+      };
+      
+      console.log('Submitting section data:', sectionData);
+      
+      // Skip ID check for new sections since they won't have an ID yet
+      let sectionId = null;
+      
+      // Only perform ID checking for updates, not for new sections
+      if (sectionFormData.id) {
+        // This is an update operation - we need the section ID
+        sectionId = sectionFormData.id;
+        console.log(`Updating existing section with ID: ${sectionId}`);
+      } else {
+        // This is a create operation - no ID needed
+        console.log('Creating new section - no ID needed');
+      }
+      
+      let response;
 
-      setHomePageSections((prevSections) => [...prevSections, newSection])
+      if (sectionFormData.id) {
+        // Update existing section
+        try {
+          console.log(`Sending update request for section ID: ${sectionId}`, sectionData);
+          response = await homepageSectionService.updateSection(sectionId, sectionData);
+          console.log('Section updated:', {
+            id: response._id,
+            type: response.type,
+            content: JSON.stringify(response.content, null, 2)
+          });
+          
+          // Update local state with the response from the server
+          // Match by either id or _id
+          const updatedSections = homePageSections.map(section => 
+            (section.id === sectionFormData.id || section._id === sectionFormData.id) ? response : section
+          );
+          
+          setHomePageSections(updatedSections);
+          
+          // Also update localStorage
+          localStorage.setItem('homePageSections', JSON.stringify(updatedSections));
+          console.log('Updated localStorage after section update');
+          
+        } catch (apiError) {
+          console.error('API error updating section:', apiError);
+          const errorMessage = apiError.response?.data?.message || apiError.message;
+          const errorDetails = apiError.response?.data?.error || '';
+          alert(`Failed to update section: ${errorMessage}${errorDetails ? `\nDetails: ${errorDetails}` : ''}`);
+          return;
+        }
+      } else {
+        // Create new section
+        try {
+          // For new sections, don't need sectionId
+          console.log('Sending create request for new section:', sectionData);
+          response = await homepageSectionService.createSection(sectionData);
+          console.log('Section created:', {
+            id: response._id,
+            type: response.type,
+            content: JSON.stringify(response.content, null, 2)
+          });
+          
+          // Update local state with the response from the server
+          const updatedSections = [...homePageSections, response];
+          setHomePageSections(updatedSections);
+          
+          // Also update localStorage
+          localStorage.setItem('homePageSections', JSON.stringify(updatedSections));
+          console.log('Updated localStorage after section creation');
+          
+        } catch (apiError) {
+          console.error('API error creating section:', apiError);
+          const errorMessage = apiError.response?.data?.message || apiError.message;
+          const errorDetails = apiError.response?.data?.error || '';
+          alert(`Failed to create section: ${errorMessage}${errorDetails ? `\nDetails: ${errorDetails}` : ''}`);
+          return;
+        }
+      }
+      
+      // Reset form and states
+      setShowSectionForm(false);
+      setSectionFormData({
+        id: null,
+        title: "",
+        type: "banner",
+        content: "",
+        order: homePageSections.length + 1,
+        active: true,
+      });
+      
+      // Reset section specific data
+      setBannerData({
+        slides: [
+          {
+            imageUrl: "",
+            title: "",
+            subtitle: "",
+            buttonText: "",
+            buttonLink: "",
+          }
+        ]
+      });
+      
+      setCategoriesData({
+        categories: [],
+      });
+      
+      setProductsData({
+        productIds: [],
+      });
+      
+      setSelectedProducts([]);
+      
+      setIconCategoriesData({
+        categories: [],
+      });
+    } catch (error) {
+      console.error('Error saving section:', error);
+      alert('Failed to save section: ' + error.message);
     }
-
-    setShowSectionForm(false)
-  }
+  };
 
   // Helper function to safely parse JSON
   const safeJsonParse = (jsonString, defaultValue = {}) => {
+    // If it's already an object, return it directly
+    if (typeof jsonString === 'object' && jsonString !== null) {
+      return jsonString;
+    }
+    
+    // Otherwise try to parse it as JSON
     try {
-      return JSON.parse(jsonString)
+      return JSON.parse(jsonString);
     } catch (error) {
-      console.error("Error parsing JSON:", error)
-      return defaultValue
+      console.error("Error parsing JSON:", error);
+      return defaultValue;
     }
   }
 
@@ -575,38 +1153,111 @@ const AdminDashboard = () => {
       .map((_, i) => categoryFileInputRefs.current[i] || React.createRef())
   }, [categoriesData.categories.length])
 
-  // Handle category data changes for icon categories
+  // Update handleIconCategoryChange to use imageUrl instead of icon
   const handleIconCategoryChange = (index, field, value) => {
-    const updatedCategories = [...iconCategoriesData.categories]
-    updatedCategories[index] = {
-      ...updatedCategories[index],
+    // Update the iconCategoriesData state
+    const newCategories = [...iconCategoriesData.categories];
+    newCategories[index] = {
+      ...newCategories[index],
       [field]: value
-    }
+    };
     
-    const updatedCategoriesData = { ...iconCategoriesData, categories: updatedCategories }
-    setIconCategoriesData(updatedCategoriesData)
+    setIconCategoriesData({
+      categories: newCategories
+    });
+    
+    // Update the section form data with the new content
     setSectionFormData(prev => ({
       ...prev,
-      content: JSON.stringify(updatedCategoriesData)
-    }))
-  }
+      content: JSON.stringify({
+        categories: newCategories
+      })
+    }));
+  };
+  
+  // Update handleIconCategoryImageUpload to use FormData for real upload
+  const handleIconCategoryImageUpload = async (e, index) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    try {
+      // Show loading indicator or message
+      const newCategories = [...iconCategoriesData.categories];
+      newCategories[index] = {
+        ...newCategories[index],
+        imageUrl: 'Uploading...' // Temporary placeholder
+      };
+      
+      setIconCategoriesData({
+        categories: newCategories
+      });
+      
+      // Upload the image first
+      const response = await homepageSectionService.uploadSectionImage(file, 'icon-categories');
+      
+      if (response && response.fileUrl) {
+        // Log successful upload
+        console.log(`Icon category image uploaded successfully to ${response.fileUrl}`);
+        
+        // Update the iconCategoriesData with the new image URL
+        const updatedCategories = [...iconCategoriesData.categories];
+        updatedCategories[index] = {
+          ...updatedCategories[index],
+          imageUrl: response.fileUrl
+        };
+        
+        setIconCategoriesData({
+          categories: updatedCategories
+        });
+        
+        // Update the section form data with the new content
+        setSectionFormData(prev => ({
+          ...prev,
+          content: JSON.stringify({
+            categories: updatedCategories
+          })
+        }));
+      } else {
+        throw new Error('No file URL received from server');
+      }
+    } catch (error) {
+      console.error('Error uploading icon category image:', error);
+      alert(`Failed to upload image: ${error.message || 'Unknown error'}`);
+      
+      // Revert to empty or previous state
+      const revertedCategories = [...iconCategoriesData.categories];
+      revertedCategories[index] = {
+        ...revertedCategories[index],
+        imageUrl: revertedCategories[index].imageUrl === 'Uploading...' ? '' : revertedCategories[index].imageUrl
+      };
+      
+      setIconCategoriesData({
+        categories: revertedCategories
+      });
+    }
+  };
   
   // Add new icon category
   const handleAddIconCategory = () => {
     const newCategory = {
-      name: "New Category",
-      icon: "🏷️",
-      link: "/category/new"
-    }
+      name: '',
+      imageUrl: '',
+      link: ''
+    };
     
-    const updatedCategories = [...iconCategoriesData.categories, newCategory]
-    const updatedCategoriesData = { ...iconCategoriesData, categories: updatedCategories }
-    setIconCategoriesData(updatedCategoriesData)
+    // Update the iconCategoriesData state
+    setIconCategoriesData(prevData => ({
+      categories: [...prevData.categories, newCategory]
+    }));
+    
+    // Update the section form data with the new content
     setSectionFormData(prev => ({
       ...prev,
-      content: JSON.stringify(updatedCategoriesData)
-    }))
-  }
+      content: JSON.stringify({
+        categories: [...iconCategoriesData.categories, newCategory]
+      })
+    }));
+  };
   
   // Remove icon category
   const handleRemoveIconCategory = (index) => {
@@ -620,6 +1271,34 @@ const AdminDashboard = () => {
       content: JSON.stringify(updatedCategoriesData)
     }))
   }
+
+  // Load all products when component mounts
+  useEffect(() => {
+    const loadAllProducts = async () => {
+      try {
+        const response = await productService.getAllProducts();
+        if (response && response.products) {
+          // Format the products for display
+          const formattedProducts = response.products.map(product => ({
+            id: product._id,
+            name: product.title || product.name,
+            price: product.price || 0,
+            image: product.images && product.images.length > 0 
+              ? product.images[0] 
+              : '/placeholder-image.png',
+            soldCount: product.soldCount || 0
+          }));
+          setAllProducts(formattedProducts);
+          // Initially show all products
+          setSearchResults(formattedProducts);
+        }
+      } catch (error) {
+        console.error('Error fetching products:', error);
+      }
+    };
+    
+    loadAllProducts();
+  }, []);
 
   if (isLoading) {
     return (
@@ -669,10 +1348,43 @@ const AdminDashboard = () => {
                   <button className="reset-btn" onClick={() => {
                     if (window.confirm("Are you sure you want to reset all homepage sections to defaults? This cannot be undone.")) {
                       localStorage.removeItem('homePageSections');
+                      localStorage.removeItem('sectionMongoIds');
                       fetchAdminData();
                     }
                   }}>
                     Reset to Defaults
+                  </button>
+                  <button className="delete-all-btn" onClick={() => {
+                    if (window.confirm("⚠️ WARNING: Are you sure you want to delete ALL sections? This will empty both the database and localStorage.")) {
+                      // Clear localStorage
+                      localStorage.removeItem('homePageSections');
+                      localStorage.removeItem('sectionMongoIds');
+                      
+                      // Clear database sections - delete each one by ID
+                      const deletePromises = homePageSections.map(section => {
+                        const sectionId = section._id || section.id;
+                        if (sectionId) {
+                          return homepageSectionService.deleteSection(sectionId)
+                            .catch(err => console.error(`Failed to delete section ${sectionId}:`, err));
+                        }
+                        return Promise.resolve();
+                      });
+                      
+                      // After all deletes complete
+                      Promise.all(deletePromises)
+                        .then(() => {
+                          // Set empty array to clear UI
+                          setHomePageSections([]);
+                          alert("All sections have been deleted.");
+                        })
+                        .catch(err => {
+                          console.error("Error during mass deletion:", err);
+                          // Still clear local state
+                          setHomePageSections([]);
+                        });
+                    }
+                  }} style={{ marginRight: "10px", background: "#d9534f", color: "white" }}>
+                    Delete All
                   </button>
                   <button className="add-btn" onClick={handleAddSection}>
                     Add New Section
@@ -684,7 +1396,12 @@ const AdminDashboard = () => {
                 {homePageSections
                   .sort((a, b) => a.order - b.order)
                   .map((section) => (
-                    <div key={section.id} className={`section-item ${!section.active ? "inactive" : ""}`}>
+                    <div 
+                      key={section._id} 
+                      className={`section-item ${!section.active ? "inactive" : ""}`}
+                      data-id={section._id}
+                      data-order={section.order}
+                    >
                       <div className="section-info">
                         <h3>{section.title}</h3>
                         <div className="section-meta">
@@ -694,57 +1411,107 @@ const AdminDashboard = () => {
                         
                         {/* Preview based on section type */}
                         <div className="section-preview">
-                          {section.type === "banner" && section.content && (
+                          {section.type === "banner" && (
                             <div className="banner-preview">
-                              <img 
-                                src={safeJsonParse(section.content).image || "/placeholder.svg"} 
-                                alt="Banner preview" 
-                                className="preview-image"
-                              />
+                              {(() => {
+                                const content = safeJsonParse(section.content);
+                                // Handle both old format and new slides format
+                                const image = content.slides ? 
+                                  (content.slides[0]?.imageUrl || "/placeholder.svg") : 
+                                  (content.image || "/placeholder.svg");
+                                const title = content.slides ? 
+                                  (content.slides[0]?.title || "Banner Title") : 
+                                  (content.title || "Banner Title");
+                                const subtitle = content.slides ? 
+                                  (content.slides[0]?.subtitle || "Banner Subtitle") : 
+                                  (content.subtitle || "Banner Subtitle");
+                                
+                                return (
+                                  <>
+                                    <img src={image} alt="Banner preview" className="preview-image" />
                               <div className="banner-text-preview">
-                                <h4>{safeJsonParse(section.content).title || "Banner Title"}</h4>
-                                <p>{safeJsonParse(section.content).subtitle || "Banner Subtitle"}</p>
+                                      <h4>{title}</h4>
+                                      <p>{subtitle}</p>
                               </div>
+                                    {content.slides && content.slides.length > 1 && (
+                                      <div className="slides-count">+{content.slides.length - 1} more slides</div>
+                                    )}
+                                  </>
+                                );
+                              })()}
                             </div>
                           )}
                           
-                          {section.type === "categories" && section.content && (
+                          {section.type === "categories" && (
                             <div className="categories-preview">
-                              {safeJsonParse(section.content).categories?.slice(0, 3).map((cat, idx) => (
+                              {(() => {
+                                const content = safeJsonParse(section.content);
+                                const categories = content.categories || [];
+                                
+                                return (
+                                  <>
+                                    {categories.slice(0, 3).map((cat, idx) => (
                                 <div key={idx} className="category-item-preview">
-                                  <img src={cat.image || "/placeholder.svg"} alt={cat.name} className="preview-image-small" />
+                                        <img 
+                                          src={cat.image || cat.imageUrl || "/placeholder.svg"} 
+                                          alt={cat.name} 
+                                          className="preview-image-small" 
+                                        />
                                   <span>{cat.name || "Category"}</span>
                                 </div>
                               ))}
-                              {safeJsonParse(section.content).categories?.length > 3 && 
-                                <span>+{safeJsonParse(section.content).categories.length - 3} more</span>
+                                    {categories.length > 3 && 
+                                      <span>+{categories.length - 3} more</span>
                               }
-                              {(!safeJsonParse(section.content).categories || safeJsonParse(section.content).categories.length === 0) && 
+                                    {categories.length === 0 && 
                                 <span>No categories added</span>
                               }
+                                  </>
+                                );
+                              })()}
                             </div>
                           )}
                           
-                          {section.type === "products" && section.content && (
+                          {section.type === "products" && (
                             <div className="products-preview">
-                              <span>{safeJsonParse(section.content).productIds?.length || 0} products selected</span>
+                              {(() => {
+                                const content = safeJsonParse(section.content);
+                                const productIds = content.productIds || [];
+                                
+                                return (
+                                  <span>{productIds.length} products selected</span>
+                                );
+                              })()}
                             </div>
                           )}
                           
-                          {section.type === "icon-categories" && section.content && (
+                          {section.type === "icon-categories" && (
                             <div className="icon-categories-preview">
-                              {safeJsonParse(section.content).categories?.slice(0, 4).map((cat, idx) => (
+                              {(() => {
+                                const content = safeJsonParse(section.content);
+                                const categories = content.categories || [];
+                                
+                                return (
+                                  <>
+                                    {categories.slice(0, 4).map((cat, idx) => (
                                 <div key={idx} className="icon-category-item-preview">
+                                        {cat.imageUrl ? (
+                                          <img src={cat.imageUrl} alt={cat.name} className="preview-image-small" />
+                                        ) : (
                                   <div className="preview-icon">{cat.icon || "🏷️"}</div>
+                                        )}
                                   <span>{cat.name || "Category"}</span>
                                 </div>
                               ))}
-                              {safeJsonParse(section.content).categories?.length > 4 && 
-                                <span>+{safeJsonParse(section.content).categories.length - 4} more</span>
+                                    {categories.length > 4 && 
+                                      <span>+{categories.length - 4} more</span>
                               }
-                              {(!safeJsonParse(section.content).categories || safeJsonParse(section.content).categories.length === 0) && 
+                                    {categories.length === 0 && 
                                 <span>No categories added</span>
                               }
+                                  </>
+                                );
+                              })()}
                             </div>
                           )}
                         </div>
@@ -753,14 +1520,14 @@ const AdminDashboard = () => {
                       <div className="section-actions">
                         <button
                           className={`toggle-btn ${section.active ? "active" : "inactive"}`}
-                          onClick={() => handleToggleSection(section.id)}
+                          onClick={() => handleToggleSection(section._id)}
                         >
                           {section.active ? "Active" : "Inactive"}
                         </button>
                         <button className="edit-btn" onClick={() => handleEditSection(section)}>
                           Edit
                         </button>
-                        <button className="delete-btn" onClick={() => handleDeleteSection(section.id)}>
+                        <button className="delete-btn" onClick={() => handleDeleteSection(section._id)}>
                           Delete
                         </button>
                       </div>
@@ -897,57 +1664,84 @@ const AdminDashboard = () => {
               
               {/* Dynamic form fields based on section type */}
               {sectionFormData.type === "banner" && (
-                <div className="banner-form">
-                  <h3>Banner Content</h3>
+                <div className="section-type-form banner-form">
+                  <h3>Banner Settings</h3>
                   
-                  <div className="form-group image-upload-group">
-                    <label>Banner Image*</label>
-                    <div className="image-preview-container">
-                      {bannerData.image && (
-                        <img src={bannerData.image} alt="Banner preview" className="image-preview" />
-                      )}
+                  {bannerData.slides.map((slide, slideIndex) => (
+                    <div key={slideIndex} className="banner-slide">
+                      <h4>Slide {slideIndex + 1}</h4>
+                      
+                      <div className="form-group">
+                        <label>Banner Image</label>
+                        {slide.imageUrl && slide.imageUrl !== 'Uploading...' ? (
+                          <div className="image-preview">
+                            <img 
+                              src={slide.imageUrl} 
+                              alt="Banner Preview" 
+                              onError={(e) => {
+                                // Only apply error handling once to prevent loops
+                                if (e.target.dataset.errorHandled !== 'true') {
+                                  console.error('Error loading image:', slide.imageUrl);
+                                  e.target.src = '/placeholder-image.png';
+                                  e.target.dataset.errorHandled = 'true';
+                                  
+                                  // Add error message below image
+                                  const errorDiv = document.createElement('div');
+                                  errorDiv.className = 'image-load-error';
+                                  errorDiv.textContent = 'Image failed to load. Using placeholder.';
+                                  e.target.parentNode.appendChild(errorDiv);
+                                }
+                              }} 
+                            />
                     </div>
+                        ) : slide.imageUrl === 'Uploading...' ? (
+                          <div className="image-preview uploading">
+                            <div className="upload-spinner"></div>
+                            <p>Uploading image...</p>
+                          </div>
+                        ) : null}
                     <div className="image-upload-controls">
                       <input
                         type="text"
-                        name="image"
-                        value={bannerData.image}
-                        onChange={handleBannerChange}
-                        placeholder="Image URL"
+                            value={slide.imageUrl || ''}
+                            onChange={(e) => handleBannerImageUrlChange(slideIndex, e.target.value)}
+                            placeholder="Paste Image URL here"
+                            className="image-url-input"
                       />
-                      <div className="upload-btn-wrapper">
-                        <button type="button" className="upload-btn" onClick={() => fileInputRef.current.click()}>
-                          Upload Image
-                        </button>
+                          <div className="upload-or-text">OR</div>
+                          <div className="file-upload-wrapper">
+                            <label htmlFor={`banner-image-${slideIndex}`} className="file-upload-label">
+                              Choose File
+                            </label>
                         <input
+                              id={`banner-image-${slideIndex}`}
                           type="file"
-                          ref={fileInputRef}
-                          onChange={handleBannerImageUpload}
-                          accept="image/*"
-                          style={{ display: 'none' }}
-                        />
-                      </div>
+                              accept="image/*"
+                            onChange={(e) => handleBannerImageUpload(slideIndex, e)}
+                            className="file-input"
+                          />
+                            <span className="file-upload-help">Supported formats: JPG, PNG, GIF, WebP (max 5MB)</span>
+                          </div>
                     </div>
                   </div>
                   
                   <div className="form-group">
-                    <label>Banner Title*</label>
+                        <label>Title</label>
                     <input
                       type="text"
-                      name="title"
-                      value={bannerData.title}
-                      onChange={handleBannerChange}
-                      required
+                          value={slide.title}
+                          onChange={(e) => handleBannerChange(slideIndex, 'title', e.target.value)}
+                          placeholder="Banner title"
                     />
                   </div>
                   
                   <div className="form-group">
-                    <label>Banner Subtitle</label>
+                        <label>Subtitle</label>
                     <input
                       type="text"
-                      name="subtitle"
-                      value={bannerData.subtitle}
-                      onChange={handleBannerChange}
+                          value={slide.subtitle}
+                          onChange={(e) => handleBannerChange(slideIndex, 'subtitle', e.target.value)}
+                          placeholder="Banner subtitle"
                     />
                   </div>
                   
@@ -955,21 +1749,41 @@ const AdminDashboard = () => {
                     <label>Button Text</label>
                     <input
                       type="text"
-                      name="buttonText"
-                      value={bannerData.buttonText}
-                      onChange={handleBannerChange}
+                          value={slide.buttonText}
+                          onChange={(e) => handleBannerChange(slideIndex, 'buttonText', e.target.value)}
+                          placeholder="Call to action button text"
                     />
                   </div>
                   
                   <div className="form-group">
-                    <label>Button Link (URL)</label>
+                        <label>Button Link</label>
                     <input
                       type="text"
-                      name="buttonLink"
-                      value={bannerData.buttonLink}
-                      onChange={handleBannerChange}
+                          value={slide.buttonLink}
+                          onChange={(e) => handleBannerChange(slideIndex, 'buttonLink', e.target.value)}
+                          placeholder="https://example.com or /products"
                     />
                   </div>
+                      
+                      {bannerData.slides.length > 1 && (
+                        <button 
+                          type="button" 
+                          className="remove-item-btn"
+                          onClick={() => handleRemoveBannerSlide(slideIndex)}
+                        >
+                          Remove Slide
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  
+                  <button 
+                    type="button" 
+                    className="add-item-btn"
+                    onClick={handleAddBannerSlide}
+                  >
+                    Add Slide
+                  </button>
                 </div>
               )}
               
@@ -1056,99 +1870,193 @@ const AdminDashboard = () => {
               )}
               
               {sectionFormData.type === "products" && (
-                <div className="products-form">
-                  <h3>Products Content</h3>
+                <div className="section-type-form products-form">
+                  <h3>Featured Products</h3>
                   
                   <div className="form-group">
-                    <label>Select Products for Flash Sale*</label>
-                    <select 
-                      multiple 
-                      value={productsData.productIds}
-                      onChange={handleProductSelectionChange}
-                      className="product-multi-select"
-                    >
-                      {products.map(product => (
-                        <option key={product.id} value={product.id}>
-                          {product.title} - Rs. {(product.price).toFixed(2)}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="help-text">Hold Ctrl (or Cmd) to select multiple products</p>
+                    <label>Search Products</label>
+                    <input
+                      type="text"
+                      value={productSearch}
+                      onChange={handleProductSearch}
+                      placeholder="Search for products..."
+                    />
+                    {isSearching && <div className="searching-indicator">Searching...</div>}
                   </div>
                   
-                  <div className="selected-products">
-                    <h4>Selected Products ({productsData.productIds.length})</h4>
-                    <ul className="selected-products-list">
-                      {productsData.productIds.map(id => {
-                        const product = products.find(p => p.id === id)
-                        return product ? (
-                          <li key={id}>{product.title} - Rs. {(product.price).toFixed(2)}</li>
-                        ) : null
-                      })}
-                    </ul>
+                  {searchResults.length > 0 && (
+                    <div className="search-results">
+                      <h4>Search Results</h4>
+                      <div className="product-search-list">
+                        {searchResults.map(product => (
+                          <div 
+                            key={product.id} 
+                            className={`product-search-item ${selectedProducts.includes(product.id) ? 'selected' : ''}`}
+                            onClick={() => handleProductSelection(product.id)}
+                          >
+                            <div className="product-search-image">
+                              <img 
+                                src={product.image} 
+                                alt={product.name} 
+                                onError={(e) => {
+                                  e.target.onerror = null; 
+                                  e.target.src = '/placeholder-image.png';
+                                }}
+                              />
+                            </div>
+                            <div className="product-search-info">
+                              <div className="product-search-name">{product.name}</div>
+                              <div className="product-search-price">Rs. {product.price.toLocaleString()}</div>
+                              {product.soldCount > 0 && (
+                                <div className="product-search-sold">
+                                  <span className="sold-badge">{product.soldCount} sold</span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="product-search-checkbox">
+                              <input 
+                                type="checkbox" 
+                                checked={selectedProducts.includes(product.id)}
+                                onChange={() => {}}
+                              />
+                            </div>
+                          </div>
+                        ))}
                   </div>
+                    </div>
+                  )}
+                  
+                  {selectedProducts.length > 0 && (
+                  <div className="selected-products">
+                      <h4>Selected Products ({selectedProducts.length})</h4>
+                      <div className="product-search-list">
+                        {selectedProducts.map(productId => {
+                          // Find the product details from searchResults if available
+                          const productDetails = searchResults.find(p => p.id === productId);
+                          
+                          return (
+                          <div 
+                            key={productId} 
+                            className="product-search-item selected"
+                            onClick={() => handleProductSelection(productId)}
+                          >
+                            <div className="product-search-image">
+                                {productDetails ? (
+                                  <img 
+                                    src={productDetails.image} 
+                                    alt={productDetails.name} 
+                                    onError={(e) => {
+                                      e.target.onerror = null;
+                                      e.target.src = '/placeholder-image.png';
+                                    }}
+                                  />
+                                ) : (
+                                  <img src={`/placeholder-image.png`} alt={`Product ${productId}`} />
+                                )}
+                  </div>
+                            <div className="product-search-info">
+                                {productDetails ? (
+                                  <>
+                                    <div className="product-search-name">{productDetails.name}</div>
+                                    <div className="product-search-price">Rs. {productDetails.price.toLocaleString()}</div>
+                                  </>
+                                ) : (
+                              <div className="product-search-name">Product ID: {productId}</div>
+                                )}
+                                <div className="product-status-tag">Selected</div>
+                            </div>
+                            <div className="product-search-checkbox">
+                              <input 
+                                type="checkbox" 
+                                checked={true}
+                                onChange={() => {}}
+                              />
+                            </div>
+                          </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               
               {sectionFormData.type === "icon-categories" && (
-                <div className="icon-categories-form">
-                  <h3>Icon Categories Content</h3>
+                <div className="section-type-form icon-categories-form">
+                  <h3>Category Icons</h3>
                   
-                  <div className="icon-categories-list">
                     {iconCategoriesData.categories.map((category, index) => (
-                      <div key={index} className="icon-category-form-item">
-                        <h4>Category {index + 1}</h4>
-                        
+                    <div key={index} className="icon-category-item">
                         <div className="form-group">
-                          <label>Category Name*</label>
+                        <label>Category Name</label>
                           <input
                             type="text"
-                            value={category.name}
+                          value={category.name || ''}
                             onChange={(e) => handleIconCategoryChange(index, 'name', e.target.value)}
-                            required
+                          placeholder="Category name"
                           />
                         </div>
                         
-                        <div className="form-group">
-                          <label>Icon (Emoji)*</label>
-                          <input
-                            type="text"
-                            value={category.icon}
-                            onChange={(e) => handleIconCategoryChange(index, 'icon', e.target.value)}
-                            placeholder="Use emoji like 📱 or 🏠"
-                            required
-                          />
+                        <div className="form-group image-upload-group">
+                          <label>Category Image*</label>
+                          <div className="image-preview-container">
+                            {category.imageUrl && (
+                              <img src={category.imageUrl} alt={category.name} className="image-preview-small" />
+                            )}
+                          </div>
+                          <div className="image-upload-controls">
+                            <input
+                              type="text"
+                              value={category.imageUrl || ''}
+                              onChange={(e) => handleIconCategoryChange(index, 'imageUrl', e.target.value)}
+                              placeholder="Image URL"
+                            />
+                            <div className="upload-btn-wrapper">
+                              <button 
+                                type="button" 
+                                className="upload-btn"
+                                onClick={() => document.getElementById(`icon-category-image-${index}`).click()}
+                              >
+                                Upload Image
+                              </button>
+                              <input
+                                type="file"
+                                id={`icon-category-image-${index}`}
+                                onChange={(e) => handleIconCategoryImageUpload(e, index)}
+                                accept="image/*"
+                                style={{ display: 'none' }}
+                              />
+                            </div>
+                          </div>
                         </div>
                         
                         <div className="form-group">
-                          <label>Link URL*</label>
+                        <label>Link</label>
                           <input
                             type="text"
-                            value={category.link}
+                          value={category.link || ''}
                             onChange={(e) => handleIconCategoryChange(index, 'link', e.target.value)}
-                            placeholder="/category/name"
-                            required
+                          placeholder="Category link (e.g., /category/shoes)"
                           />
                         </div>
                         
                         <button 
                           type="button" 
-                          className="remove-btn"
+                        className="remove-item-btn"
                           onClick={() => handleRemoveIconCategory(index)}
                         >
-                          Remove Category
+                        Remove
                         </button>
                       </div>
                     ))}
                     
                     <button
                       type="button"
-                      className="add-btn"
+                    className="add-item-btn"
                       onClick={handleAddIconCategory}
                     >
-                      Add Icon Category
+                    Add Category
                     </button>
-                  </div>
                 </div>
               )}
               

@@ -75,8 +75,8 @@ const isOwner = (resourceModel) => async (req, res, next) => {
 
     // Check if user is owner or admin
     if (
-      resource.user && 
-      resource.user.toString() === req.user._id.toString() || 
+      resource.user &&
+      resource.user.toString() === req.user._id.toString() ||
       req.user.role === 'admin'
     ) {
       next();
@@ -89,4 +89,4 @@ const isOwner = (resourceModel) => async (req, res, next) => {
   }
 };
 
-module.exports = { protect, admin, seller, sellerOrAdmin, isOwner }; 
+module.exports = { protect, admin, seller, sellerOrAdmin, isOwner };

@@ -1,8 +1,9 @@
 const express = require('express');
 const router = express.Router();
-const upload = require('../middleware/uploadMiddleware');
+const { upload } = require('../middleware/uploadMiddleware');
 const path = require('path');
 const { protect, seller, admin } = require('../middleware/authMiddleware');
+const fs = require('fs');
 
 // @route   POST /api/upload/product
 // @desc    Upload product images
@@ -93,6 +94,45 @@ router.post('/store', protect, seller, upload.single('storeLogo'), (req, res) =>
     res.json({ path: req.file.path });
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+});
+
+// Add a new route for section images
+router.post('/sections', protect, admin, upload.single('image'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
+    
+    // Get section type from request
+    const sectionType = req.body.sectionType || 'default';
+    
+    // Create a sections folder if it doesn't exist
+    const sectionDir = path.join(uploadDir, 'sections', sectionType);
+    if (!fs.existsSync(sectionDir)) {
+      fs.mkdirSync(sectionDir, { recursive: true });
+    }
+    
+    // Generate a unique filename
+    const filename = `${Date.now()}-${req.file.originalname.replace(/\s+/g, '-').toLowerCase()}`;
+    const filepath = path.join(sectionDir, filename);
+    
+    // Move the file
+    fs.writeFileSync(filepath, req.file.buffer);
+    
+    // Return the file URL
+    const fileUrl = `/uploads/sections/${sectionType}/${filename}`;
+    res.json({
+      message: 'File uploaded successfully',
+      fileUrl,
+      filePath: fileUrl,
+    });
+  } catch (error) {
+    console.error('Error uploading file:', error);
+    res.status(500).json({
+      message: 'Error uploading file',
+      error: error.message
+    });
   }
 });
 

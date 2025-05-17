@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const orderController = require('../controllers/orderController');
-const { protect, admin } = require('../middleware/authMiddleware');
+const { protect, admin, seller } = require('../middleware/authMiddleware');
 
 // @route   POST /api/orders
 // @desc    Create new order
@@ -12,6 +12,11 @@ router.post('/', protect, orderController.createOrder);
 // @desc    Get logged in user orders
 // @access  Private
 router.get('/myorders', protect, orderController.getMyOrders);
+
+// @route   GET /api/orders/seller
+// @desc    Get seller's orders
+// @access  Private/Seller
+router.get('/seller', protect, seller, orderController.getSellerOrders);
 
 // @route   GET /api/orders
 // @desc    Get all orders

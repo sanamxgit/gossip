@@ -3,7 +3,8 @@ import { API_URL } from '../../config';
 
 // Create an axios instance with the base URL for model uploads
 const modelUploadApi = axios.create({
-  baseURL: `${API_URL}/api/models`
+  baseURL: `${API_URL}/api/models`,
+  withCredentials: true
 });
 
 // Add request interceptor to include auth token

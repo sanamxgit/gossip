@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const categoryController = require('../controllers/categoryController');
 const { protect, admin } = require('../middleware/authMiddleware');
-const upload = require('../middleware/uploadMiddleware');
+const { upload } = require('../middleware/uploadMiddleware');
 
 // @route   GET /api/categories
 // @desc    Get all categories
@@ -19,6 +19,11 @@ router.post(
   upload.single('image'),
   categoryController.createCategory
 );
+
+// @route   GET /api/categories/featured
+// @desc    Get featured categories
+// @access  Public
+router.get('/featured', categoryController.getFeaturedCategories);
 
 // @route   GET /api/categories/top
 // @desc    Get top level categories
