@@ -6,11 +6,13 @@
  * with fallbacks to development defaults.
  */
 
-// API Base URL - defaults to local development server
+// API Configuration
 export const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
-// File Upload URL - where uploaded files are stored
+// Other configuration constants can be added here
 export const UPLOAD_URL = process.env.REACT_APP_UPLOAD_URL || 'http://localhost:5000/uploads';
+export const CLOUDINARY_CLOUD_NAME = process.env.REACT_APP_CLOUDINARY_CLOUD_NAME;
+export const CLOUDINARY_UPLOAD_PRESET = process.env.REACT_APP_CLOUDINARY_UPLOAD_PRESET;
 
 // Application Environment
 export const NODE_ENV = process.env.NODE_ENV || 'development';

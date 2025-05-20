@@ -21,23 +21,36 @@ const ProductCard = ({ product }) => {
   const getImageUrl = (imagePath) => {
     if (!imagePath) return "/placeholder.svg";
     
+    // If imagePath is an object with url property (from Cloudinary)
+    if (typeof imagePath === 'object' && imagePath.url) {
+      return imagePath.url;
+    }
+    
+    // If imagePath is an object with secure_url property (from Cloudinary)
+    if (typeof imagePath === 'object' && imagePath.secure_url) {
+      return imagePath.secure_url;
+    }
+    
+    // Convert to string to handle any non-string inputs
+    const path = String(imagePath);
+    
     // If already a fully qualified URL, return as is
-    if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
-      return imagePath;
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      return path;
     }
     
     // If it's just a filename (not a path), prepend the uploads directory
-    if (!imagePath.startsWith('/')) {
-      return `${UPLOAD_URL}/${imagePath}`;
+    if (!path.startsWith('/')) {
+      return `${UPLOAD_URL}/${path}`;
     }
     
     // If it's an absolute path without domain
-    if (imagePath.startsWith('/uploads/')) {
-      return `${API_URL}${imagePath}`;
+    if (path.startsWith('/uploads/')) {
+      return `${API_URL}${path}`;
     }
     
     // Fall back to API URL + path
-    return `${API_URL}${imagePath}`;
+    return `${API_URL}${path}`;
   };
   
   const formatPrice = (price) => {
@@ -88,6 +101,7 @@ const ProductCard = ({ product }) => {
           onError={(e) => {
             e.target.onerror = null;
             setImageError(true);
+            e.target.src = "/placeholder.svg";
           }}
         />
         

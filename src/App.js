@@ -35,6 +35,7 @@ function App() {
                 <Route path="/profile" element={<ProfilePage />} />
                 <Route path="/orders" element={<OrderHistoryPage />} />
                 <Route path="/category/:category" element={<CategoryPage />} />
+                <Route path="/admin" element={<AdminDashboard />} />
               </Routes>
             </main>
             <Footer />

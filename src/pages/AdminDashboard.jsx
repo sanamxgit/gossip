@@ -5,10 +5,13 @@ import { useNavigate } from "react-router-dom"
 import { useAuth } from "../contexts/AuthContext"
 import homepageSectionService from "../services/api/homepageSectionService"
 import productService from "../services/api/productService"
+import userService from "../services/api/userService"
+import categoryService from "../services/api/categoryService"
 import "./AdminDashboard.css"
+import { FaPlus, FaEdit, FaTrash, FaUsers, FaBox, FaLayerGroup } from 'react-icons/fa'
 
 const AdminDashboard = () => {
-  const { user } = useAuth()
+  const { user, isAuthenticated } = useAuth()
   const navigate = useNavigate()
   const [users, setUsers] = useState([])
   const [products, setProducts] = useState([])
@@ -65,16 +68,23 @@ const AdminDashboard = () => {
   // Add state for all products
   const [allProducts, setAllProducts] = useState([]);
 
+  const [categories, setCategories] = useState([]);
+  const [showCategoryForm, setShowCategoryForm] = useState(false);
+  const [categoryFormData, setCategoryFormData] = useState({
+    id: null,
+    name: "",
+    description: "",
+    parent: "",
+    image: null
+  });
+
   useEffect(() => {
-    // Check if user is an admin
-    if (!user || user.role !== "admin") {
-      navigate("/login")
+    if (!isAuthenticated || user?.role !== 'admin') {
+      navigate('/login')
       return
     }
-
-    // Fetch admin data
-    fetchAdminData()
-  }, [user, navigate])
+    fetchData()
+  }, [isAuthenticated, user, navigate])
 
   // Save to localStorage whenever homePageSections changes
   useEffect(() => {
@@ -181,21 +191,16 @@ const AdminDashboard = () => {
     ];
   };
 
-  const fetchAdminData = async () => {
+  const fetchData = async () => {
     setIsLoading(true)
     try {
-      // Fetch homepage sections from API
+      // Fetch homepage sections
       try {
         const sections = await homepageSectionService.getAdminSections();
         if (sections && sections.length > 0) {
-          console.log('Loaded homepage sections from API:', sections);
           setHomePageSections(sections);
-          
-          // Also update localStorage with latest from server
           localStorage.setItem('homePageSections', JSON.stringify(sections));
-          console.log('Updated localStorage with latest sections from API');
           
-          // Store mapping of order to MongoDB IDs
           const idsMap = {};
           sections.forEach(section => {
             if (section._id && section.order) {
@@ -204,95 +209,69 @@ const AdminDashboard = () => {
           });
           localStorage.setItem('sectionMongoIds', JSON.stringify(idsMap));
         } else {
-          // No sections from API - check if we should use localStorage or defaults
           const shouldUseDefaults = window.confirm(
-            "No sections found in database. Would you like to reset to default sections? " +
-            "Click OK to use defaults, or Cancel to use any locally saved sections."
+            "No sections found in database. Would you like to reset to default sections?"
           );
           
           if (shouldUseDefaults) {
-            // Clear localStorage and use defaults
             localStorage.removeItem('homePageSections');
             localStorage.removeItem('sectionMongoIds');
-            const defaultSections = getDefaultSections();
-            setHomePageSections(defaultSections);
+            setHomePageSections(getDefaultSections());
           } else {
-            // Try localStorage as fallback
             const savedSections = localStorage.getItem('homePageSections');
             if (savedSections) {
-              try {
-                const parsedSections = JSON.parse(savedSections);
-                console.log('Loaded homepage sections from localStorage:', parsedSections);
-                setHomePageSections(parsedSections);
-              } catch (error) {
-                console.error('Error parsing saved sections:', error);
-                // Use default sections if parsing fails
-                setHomePageSections(getDefaultSections());
-              }
+              setHomePageSections(JSON.parse(savedSections));
             } else {
-              // No localStorage data either - use defaults
               setHomePageSections(getDefaultSections());
             }
           }
         }
       } catch (error) {
         console.error('Error fetching homepage sections:', error);
-        
-        // Ask user what to do
         const shouldUseDefaults = window.confirm(
-          "Error connecting to database. Would you like to reset to default sections? " +
-          "Click OK to use defaults, or Cancel to use any locally saved sections."
+          "Error connecting to database. Would you like to reset to default sections?"
         );
         
         if (shouldUseDefaults) {
-          // Clear localStorage and use defaults
           localStorage.removeItem('homePageSections');
           localStorage.removeItem('sectionMongoIds');
-          const defaultSections = getDefaultSections();
-          setHomePageSections(defaultSections);
+          setHomePageSections(getDefaultSections());
         } else {
-          // Try localStorage as fallback
           const savedSections = localStorage.getItem('homePageSections');
           if (savedSections) {
-            try {
-              const parsedSections = JSON.parse(savedSections);
-              console.log('Loaded homepage sections from localStorage:', parsedSections);
-              setHomePageSections(parsedSections);
-            } catch (error) {
-              console.error('Error parsing saved sections:', error);
-              setHomePageSections(getDefaultSections());
-            }
+            setHomePageSections(JSON.parse(savedSections));
           } else {
             setHomePageSections(getDefaultSections());
           }
         }
       }
 
-      // Mock users and products data for the demo
-      // In a real app, you would fetch these from the API
-        const mockUsers = [
-          {
-            id: 1,
-            email: "user@example.com",
-            username: "User",
-            role: "user",
-            createdAt: new Date(Date.now() - 5000000000).toISOString(),
-          },
-        // ... rest of mock users
-        ]
-        setUsers(mockUsers)
+      // Fetch real users data
+      try {
+        const usersData = await userService.getAllUsers();
+        setUsers(usersData.users || []);
+      } catch (error) {
+        console.error('Error fetching users:', error);
+        setUsers([]);
+      }
 
-        const mockProducts = Array(5)
-          .fill()
-          .map((_, index) => ({
-            id: index + 1,
-            title: `Product ${index + 1}`,
-            price: 9999,
-            seller: "Seller",
-            category: "Home & Decor",
-            createdAt: new Date(Date.now() - Math.random() * 10000000000).toISOString(),
-          }))
-        setProducts(mockProducts)
+      // Fetch real products data
+      try {
+        const productsData = await productService.getAllProducts();
+        setProducts(productsData.products || []);
+      } catch (error) {
+        console.error('Error fetching products:', error);
+        setProducts([]);
+      }
+
+      // Fetch categories
+      try {
+        const categoriesData = await categoryService.getAllCategories();
+        setCategories(categoriesData.categories || []);
+      } catch (error) {
+        console.error('Error fetching categories:', error);
+        setCategories([]);
+      }
 
             setIsLoading(false)
     } catch (error) {
@@ -806,69 +785,98 @@ const AdminDashboard = () => {
     }))
   }
   
+  // Add handleRemoveCategory function
+  const handleRemoveCategory = (index) => {
+    const updatedCategories = [...categoriesData.categories];
+    updatedCategories.splice(index, 1);
+    
+    const updatedCategoriesData = { ...categoriesData, categories: updatedCategories };
+    setCategoriesData(updatedCategoriesData);
+    setSectionFormData(prev => ({
+      ...prev,
+      content: JSON.stringify(updatedCategoriesData)
+    }));
+  };
+  
   // Add new category
   const handleAddCategory = () => {
-    const newCategory = {
-      name: "New Category",
-      description: "Description",
-      image: "/placeholder.svg?height=200&width=200"
+    setCategoryFormData({
+      id: null,
+      name: "",
+      description: "",
+      parent: "",
+      image: null
+    });
+    setShowCategoryForm(true);
+  };
+
+  const handleEditCategory = (category) => {
+    setCategoryFormData({
+      id: category._id,
+      name: category.name,
+      description: category.description || "",
+      parent: category.parent?._id || "",
+      image: null
+    });
+    setShowCategoryForm(true);
+  };
+
+  const handleDeleteCategory = async (categoryId) => {
+    if (window.confirm("Are you sure you want to delete this category? This action cannot be undone.")) {
+      try {
+        await categoryService.deleteCategory(categoryId);
+        setCategories(categories.filter(cat => cat._id !== categoryId));
+        alert("Category deleted successfully!");
+      } catch (error) {
+        console.error("Error deleting category:", error);
+        alert("Failed to delete category. Please try again.");
+      }
     }
-    
-    const updatedCategories = [...categoriesData.categories, newCategory]
-    const updatedCategoriesData = { ...categoriesData, categories: updatedCategories }
-    setCategoriesData(updatedCategoriesData)
-    setSectionFormData(prev => ({
-      ...prev,
-      content: JSON.stringify(updatedCategoriesData)
-    }))
-  }
-  
-  // Remove category
-  const handleRemoveCategory = (index) => {
-    const updatedCategories = [...categoriesData.categories]
-    updatedCategories.splice(index, 1)
-    
-    const updatedCategoriesData = { ...categoriesData, categories: updatedCategories }
-    setCategoriesData(updatedCategoriesData)
-    setSectionFormData(prev => ({
-      ...prev,
-      content: JSON.stringify(updatedCategoriesData)
-    }))
-  }
-  
-  // Update handleCategoryImageUpload to use FormData for real upload
-  const handleCategoryImageUpload = async (index, e) => {
+  };
+
+  const handleCategoryFormSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      let response;
+      if (categoryFormData.id) {
+        response = await categoryService.updateCategory(categoryFormData.id, categoryFormData);
+        setCategories(categories.map(cat => 
+          cat._id === categoryFormData.id ? response : cat
+        ));
+      } else {
+        response = await categoryService.createCategory(categoryFormData);
+        setCategories([...categories, response]);
+      }
+      setShowCategoryForm(false);
+      alert(categoryFormData.id ? "Category updated successfully!" : "Category created successfully!");
+    } catch (error) {
+      console.error("Error saving category:", error);
+      alert("Failed to save category. Please try again.");
+    }
+  };
+
+  const handleCategoryImageUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     
     try {
-      // Indicate upload in progress
-      handleCategoryChange(index, 'image', 'Uploading...');
-      
-      // Upload the file to the server
-      const uploadResponse = await homepageSectionService.uploadSectionImage(file, 'categories');
-      
-      if (uploadResponse && uploadResponse.fileUrl) {
-        console.log(`Category image uploaded successfully to ${uploadResponse.fileUrl}`);
-        
-        // Store the server-provided URL
-        handleCategoryChange(index, 'image', uploadResponse.fileUrl);
+      if (categoryFormData.id) {
+        // If editing existing category, upload image directly
+        const response = await categoryService.uploadCategoryImage(categoryFormData.id, file);
+        setCategoryFormData(prev => ({
+          ...prev,
+          image: response.imageUrl
+        }));
       } else {
-        console.error('File upload failed - no URL returned');
-        alert('File upload failed. Please try again.');
-        // Reset the image field
-        handleCategoryChange(index, 'image', '');
+        // If creating new category, just store the file
+        setCategoryFormData(prev => ({
+          ...prev,
+          image: file
+        }));
       }
     } catch (error) {
-      console.error('Error uploading category image:', error);
-      alert('Error uploading image: ' + (error.message || 'Unknown error'));
-      
-      // Reset the image field
-      handleCategoryChange(index, 'image', '');
-      
-      // DON'T use blob URLs - they don't persist and will be lost on reload
-      // const imageUrl = URL.createObjectURL(file);
-      // handleCategoryChange(index, 'image', imageUrl);
+      console.error("Error uploading category image:", error);
+      alert("Failed to upload image. Please try again.");
     }
   };
   
@@ -1326,16 +1334,22 @@ const AdminDashboard = () => {
             Homepage Editor
           </button>
           <button
+            className={`tab-btn ${activeTab === "categories" ? "active" : ""}`}
+            onClick={() => handleTabChange("categories")}
+          >
+            <FaLayerGroup /> Categories
+          </button>
+          <button
             className={`tab-btn ${activeTab === "users" ? "active" : ""}`}
             onClick={() => handleTabChange("users")}
           >
-            Users
+            <FaUsers /> Users
           </button>
           <button
             className={`tab-btn ${activeTab === "products" ? "active" : ""}`}
             onClick={() => handleTabChange("products")}
           >
-            Products
+            <FaBox /> Products
           </button>
         </div>
 
@@ -1349,7 +1363,7 @@ const AdminDashboard = () => {
                     if (window.confirm("Are you sure you want to reset all homepage sections to defaults? This cannot be undone.")) {
                       localStorage.removeItem('homePageSections');
                       localStorage.removeItem('sectionMongoIds');
-                      fetchAdminData();
+                      fetchData();
                     }
                   }}>
                     Reset to Defaults
@@ -1537,6 +1551,53 @@ const AdminDashboard = () => {
             </div>
           )}
 
+          {activeTab === "categories" && (
+            <div className="categories-tab">
+              <div className="tab-header">
+                <h2>Category Management</h2>
+                <button className="add-btn" onClick={() => {/* TODO: Add category handler */}}>
+                  <FaPlus /> Add Category
+                </button>
+              </div>
+
+              <div className="categories-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Name</th>
+                      <th>Parent Category</th>
+                      <th>Products</th>
+                      <th>Created</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {categoriesData.categories.map((category) => (
+                      <tr key={category._id}>
+                        <td>{category._id}</td>
+                        <td>{category.name}</td>
+                        <td>{category.parent ? category.parent.name : '-'}</td>
+                        <td>{category.productCount || 0}</td>
+                        <td>{formatDate(category.createdAt)}</td>
+                        <td>
+                          <div className="action-buttons">
+                            <button className="edit-btn">
+                              <FaEdit /> Edit
+                            </button>
+                            <button className="delete-btn">
+                              <FaTrash /> Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {activeTab === "users" && (
             <div className="users-tab">
               <h2>User Management</h2>
@@ -1555,8 +1616,8 @@ const AdminDashboard = () => {
                   </thead>
                   <tbody>
                     {users.map((user) => (
-                      <tr key={user.id}>
-                        <td>{user.id}</td>
+                      <tr key={user._id}>
+                        <td>{user._id}</td>
                         <td>{user.username}</td>
                         <td>{user.email}</td>
                         <td>
@@ -1565,8 +1626,12 @@ const AdminDashboard = () => {
                         <td>{formatDate(user.createdAt)}</td>
                         <td>
                           <div className="action-buttons">
-                            <button className="edit-btn">Edit</button>
-                            <button className="delete-btn">Delete</button>
+                            <button className="edit-btn">
+                              <FaEdit /> Edit
+                            </button>
+                            <button className="delete-btn">
+                              <FaTrash /> Delete
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -1596,17 +1661,21 @@ const AdminDashboard = () => {
                   </thead>
                   <tbody>
                     {products.map((product) => (
-                      <tr key={product.id}>
-                        <td>{product.id}</td>
+                      <tr key={product._id}>
+                        <td>{product._id}</td>
                         <td>{product.title}</td>
                         <td>Rs. {(product.price).toFixed(2)}</td>
-                        <td>{product.seller}</td>
-                        <td>{product.category}</td>
+                        <td>{product.seller?.username || 'Unknown'}</td>
+                        <td>{product.category?.name || 'Uncategorized'}</td>
                         <td>{formatDate(product.createdAt)}</td>
                         <td>
                           <div className="action-buttons">
-                            <button className="edit-btn">Edit</button>
-                            <button className="delete-btn">Delete</button>
+                            <button className="edit-btn">
+                              <FaEdit /> Edit
+                            </button>
+                            <button className="delete-btn">
+                              <FaTrash /> Delete
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -2092,6 +2161,96 @@ const AdminDashboard = () => {
                 </button>
                 <button type="submit" className="save-btn">
                   {sectionFormData.id ? "Update Section" : "Add Section"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Category Form Modal */}
+      {showCategoryForm && (
+        <div className="section-form-modal">
+          <div className="section-form-content">
+            <button className="close-form-btn" onClick={() => setShowCategoryForm(false)}>
+              ×
+            </button>
+
+            <h2>{categoryFormData.id ? "Edit Category" : "Add New Category"}</h2>
+
+            <form onSubmit={handleCategoryFormSubmit}>
+              <div className="form-group">
+                <label>Category Name*</label>
+                <input
+                  type="text"
+                  name="name"
+                  value={categoryFormData.name}
+                  onChange={(e) => setCategoryFormData(prev => ({
+                    ...prev,
+                    name: e.target.value
+                  }))}
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Description</label>
+                <textarea
+                  name="description"
+                  value={categoryFormData.description}
+                  onChange={(e) => setCategoryFormData(prev => ({
+                    ...prev,
+                    description: e.target.value
+                  }))}
+                  rows="3"
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Parent Category</label>
+                <select
+                  name="parent"
+                  value={categoryFormData.parent}
+                  onChange={(e) => setCategoryFormData(prev => ({
+                    ...prev,
+                    parent: e.target.value
+                  }))}
+                >
+                  <option value="">None (Top Level)</option>
+                  {categories.map(cat => (
+                    <option key={cat._id} value={cat._id}>
+                      {cat.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>Category Image</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleCategoryImageUpload}
+                />
+                {categoryFormData.image && (
+                  <div className="image-preview">
+                    <img 
+                      src={typeof categoryFormData.image === 'string' 
+                        ? categoryFormData.image 
+                        : URL.createObjectURL(categoryFormData.image)
+                      } 
+                      alt="Category preview" 
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="form-actions">
+                <button type="button" className="cancel-btn" onClick={() => setShowCategoryForm(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="save-btn">
+                  {categoryFormData.id ? "Update Category" : "Add Category"}
                 </button>
               </div>
             </form>

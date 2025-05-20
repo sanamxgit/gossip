@@ -1,15 +1,17 @@
 import axios from 'axios';
 import { API_URL } from '../../config';
 
-// Create an axios instance with the base URL for user API calls
+// Create an axios instance for user endpoints
 const userApi = axios.create({
-  baseURL: `${API_URL}/api/users`
+  baseURL: `${API_URL}/api/users`,
+  headers: {
+    'Content-Type': 'application/json'
+  }
 });
 
-// Add a request interceptor to include the token in the headers for authenticated routes
+// Add request interceptor to add auth token
 userApi.interceptors.request.use(
   (config) => {
-    // Always add token for authenticated routes
     const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -22,6 +24,61 @@ userApi.interceptors.request.use(
 );
 
 const userService = {
+  // Get all users (admin only)
+  getAllUsers: async () => {
+    try {
+      const response = await userApi.get('/admin/users');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      throw error;
+    }
+  },
+
+  // Get user by ID (admin only)
+  getUserById: async (userId) => {
+    try {
+      const response = await userApi.get(`/admin/users/${userId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching user:', error);
+      throw error;
+    }
+  },
+
+  // Update user (admin only)
+  updateUser: async (userId, userData) => {
+    try {
+      const response = await userApi.put(`/admin/users/${userId}`, userData);
+      return response.data;
+    } catch (error) {
+      console.error('Error updating user:', error);
+      throw error;
+    }
+  },
+
+  // Delete user (admin only)
+  deleteUser: async (userId) => {
+    try {
+      const response = await userApi.delete(`/admin/users/${userId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      throw error;
+    }
+  },
+
+  // Change user role (admin only)
+  changeUserRole: async (userId, role) => {
+    try {
+      const response = await userApi.patch(`/admin/users/${userId}/role`, { role });
+      return response.data;
+    } catch (error) {
+      console.error('Error changing user role:', error);
+      throw error;
+    }
+  },
+
   // Get user profile
   getUserProfile: async () => {
     try {

@@ -40,7 +40,7 @@ const ARButton = forwardRef(({ iosUrl, androidUrl, productName }, ref) => {
       window.location.href = getIOSARLink();
     } else if (isAndroid) {
       // Android devices can use Scene Viewer
-      window.location.href = `intent://arvr.google.com/scene-viewer/1.0?file=${androidUrl}&mode=ar_only#Intent;scheme=https;package=com.google.android.googlequicksearchbox;action=android.intent.action.VIEW;S.browser_fallback_url=https://developers.google.com/ar;end;`;
+      window.location.href = `@https://arvr.google.com/scene-viewer/1.0?file=${encodeURIComponent(androidUrl)}&mode=ar_preferred`;
     } else {
       // Desktop or unsupported devices show QR code
       setShowQR(true);
@@ -59,17 +59,6 @@ const ARButton = forwardRef(({ iosUrl, androidUrl, productName }, ref) => {
 
   return (
     <>
-      <button 
-        className="ar-button" 
-        onClick={handleARClick}
-        title="View in AR"
-        type="button"
-        ref={ref}
-      >
-        <span className="ar-icon">📱</span>
-        <span className="ar-text">View in AR</span>
-      </button>
-      
       {showQR && (
         <div className="qr-modal" onClick={closeQRModal}>
           <div className="qr-content" onClick={(e) => e.stopPropagation()}>

@@ -1,5 +1,14 @@
 import axios from 'axios';
 import { API_URL } from '../../config';
+import SHA1 from 'crypto-js/sha1';
+import enc from 'crypto-js/enc-hex';
+import { CLOUDINARY_CONFIG, validateCloudinaryConfig } from '../../config/cloudinary';
+
+// Function to generate Cloudinary API signature
+const generateCloudinarySignature = (publicId, timestamp) => {
+  const str = `public_id=${publicId}&timestamp=${timestamp}${CLOUDINARY_CONFIG.apiSecret}`;
+  return SHA1(str).toString(enc);
+};
 
 // Create an axios instance with the base URL for product API calls
 const productApi = axios.create({
@@ -265,56 +274,112 @@ const productService = {
   // Create a product (seller/admin only)
   createProduct: async (productData) => {
     try {
-      console.log("Creating product with data:", productData)
+      console.log("Creating product with data:", productData);
       
       // If category is provided as an object with id, extract the id
       if (productData.category && typeof productData.category === 'object' && productData.category._id) {
         productData.category = productData.category._id;
       }
       
-      // Handle FormData for file uploads
-      let requestData = productData;
+      // Create a new FormData instance
+      const formData = new FormData();
       
-      // If not already FormData and contains images, convert to FormData
-      if (!(productData instanceof FormData) && productData.images) {
-        const formData = new FormData();
-        
-        // Add all other product data
-        Object.keys(productData).forEach(key => {
-          if (key !== 'images') {
-            // Handle nested objects like specifications
-            if (typeof productData[key] === 'object' && !(productData[key] instanceof File)) {
-              formData.append(key, JSON.stringify(productData[key]));
-            } else {
-              formData.append(key, productData[key]);
-            }
-          }
-        });
-        
-        // Add images
-        if (Array.isArray(productData.images)) {
-          productData.images.forEach(image => {
-            formData.append('images', image);
-          });
+      // Process arModels to ensure they have the correct structure before adding to FormData
+      let processedArModels = { ios: {}, android: {} };
+      
+      if (productData.arModels) {
+        // Make sure iOS model has the right structure (url and public_id)
+        if (productData.arModels.ios) {
+          const iosModel = productData.arModels.ios;
+          processedArModels.ios = {
+            url: typeof iosModel === 'string' ? iosModel : iosModel.url || '',
+            public_id: typeof iosModel === 'string' ? 
+              (iosModel.split('/').pop() || '') : 
+              (iosModel.public_id || iosModel.url?.split('/').pop() || '')
+          };
         }
         
-        requestData = formData;
+        // Make sure Android model has the right structure (url and public_id)
+        if (productData.arModels.android) {
+          const androidModel = productData.arModels.android;
+          processedArModels.android = {
+            url: typeof androidModel === 'string' ? androidModel : androidModel.url || '',
+            public_id: typeof androidModel === 'string' ? 
+              (androidModel.split('/').pop() || '') : 
+              (androidModel.public_id || androidModel.url?.split('/').pop() || '')
+          };
+        }
+      }
+      
+      console.log("Processed AR models:", processedArModels);
+      
+      // Add all product data except images
+      Object.keys(productData).forEach(key => {
+        if (key !== 'images' && key !== 'arModels') {
+          if (typeof productData[key] === 'object') {
+            formData.append(key, JSON.stringify(productData[key]));
+          } else {
+            formData.append(key, productData[key]);
+          }
+        }
+      });
+      
+      // Add properly structured arModels to FormData
+      formData.append('arModels', JSON.stringify(processedArModels));
+      
+      // Handle images array - IMPORTANT CHANGE: Append each image field individually
+      if (Array.isArray(productData.images) && productData.images.length > 0) {
+        // First, ensure each image has url and public_id
+        const formattedImages = productData.images.map((img, idx) => {
+          // If image is already an object with url and public_id, return as is
+          if (img && typeof img === 'object' && img.url && img.public_id) {
+            console.log(`Image ${idx} is valid with url and public_id:`, img);
+            return img;
+          }
+          // If image is a string (URL), create proper format
+          if (typeof img === 'string') {
+            const publicId = img.split('/').pop().split('.')[0]; // Extract public_id from URL
+            console.log(`Image ${idx} is string URL, created public_id:`, publicId);
+            return {
+              url: img,
+              public_id: publicId
+            };
+          }
+          console.error(`Image ${idx} is invalid:`, img);
+          return null;
+        }).filter(img => img !== null); // Remove any null values
+
+        console.log("Formatted images for submission:", formattedImages);
+
+        // Add images count to FormData for validation
+        formData.append('imagesCount', formattedImages.length.toString());
+        
+        // Append each image individually with indexed properties
+        formattedImages.forEach((img, index) => {
+          formData.append(`images[${index}][url]`, img.url);
+          formData.append(`images[${index}][public_id]`, img.public_id);
+        });
+      } else {
+        console.warn("No images array provided in productData");
+        formData.append('imagesCount', '0');
       }
       
       // Log the formData contents for debugging
-      for (let pair of requestData.entries()) {
+      console.log("Form data entries:");
+      for (let pair of formData.entries()) {
         console.log(`${pair[0]}: ${pair[1]}`);
       }
       
-      const response = await productApi.post('/', requestData, {
+      const response = await productApi.post('/', formData, {
         headers: {
-          'Content-Type': requestData instanceof FormData ? 'multipart/form-data' : 'application/json',
+          'Content-Type': 'multipart/form-data'
         }
       });
       
       return response.data;
     } catch (error) {
       console.error('Error creating product:', error);
+      console.error('Error response:', error.response?.data);
       throw error;
     }
   },
@@ -329,60 +394,105 @@ const productService = {
         productData.category = productData.category._id;
       }
       
-      // Handle FormData for file uploads
-      let requestData = productData;
+      // Create a new FormData instance for update
+      const formData = new FormData();
       
-      // If not already FormData and contains images, convert to FormData
-      if (!(productData instanceof FormData) && productData.images) {
-        const formData = new FormData();
-        
-        // Add all other product data
-        Object.keys(productData).forEach(key => {
-          if (key !== 'images') {
-            // Handle nested objects like specifications
-            if (typeof productData[key] === 'object' && !(productData[key] instanceof File) && key !== 'colors') {
-              formData.append(key, JSON.stringify(productData[key]));
-            } else if (key === 'colors') {
-              formData.append('colors', JSON.stringify(productData.colors));
-            } else {
-              formData.append(key, productData[key]);
-            }
-          }
-        });
-        
-        // Add images - only append file objects, not string URLs
-        if (Array.isArray(productData.images)) {
-          productData.images.forEach(image => {
-            if (image instanceof File) {
-              formData.append('images', image);
-            } else if (typeof image === 'string') {
-              // For existing image URLs, add them separately
-              formData.append('existingImages', image);
-            }
-          });
+      // Process arModels to ensure they have the correct structure
+      let processedArModels = { ios: {}, android: {} };
+      
+      if (productData.arModels) {
+        // Make sure iOS model has the right structure (url and public_id)
+        if (productData.arModels.ios) {
+          const iosModel = productData.arModels.ios;
+          processedArModels.ios = {
+            url: typeof iosModel === 'string' ? iosModel : iosModel.url || '',
+            public_id: typeof iosModel === 'string' ? 
+              (iosModel.split('/').pop() || '') : 
+              (iosModel.public_id || iosModel.url?.split('/').pop() || '')
+          };
         }
         
-        requestData = formData;
+        // Make sure Android model has the right structure (url and public_id)
+        if (productData.arModels.android) {
+          const androidModel = productData.arModels.android;
+          processedArModels.android = {
+            url: typeof androidModel === 'string' ? androidModel : androidModel.url || '',
+            public_id: typeof androidModel === 'string' ? 
+              (androidModel.split('/').pop() || '') : 
+              (androidModel.public_id || androidModel.url?.split('/').pop() || '')
+          };
+        }
+      }
+      
+      console.log("Processed AR models for update:", processedArModels);
+      
+      // Add all product data except images and arModels
+      Object.keys(productData).forEach(key => {
+        if (key !== 'images' && key !== 'arModels') {
+          if (typeof productData[key] === 'object') {
+            formData.append(key, JSON.stringify(productData[key]));
+          } else {
+            formData.append(key, productData[key]);
+          }
+        }
+      });
+      
+      // Add properly structured arModels to FormData
+      formData.append('arModels', JSON.stringify(processedArModels));
+      
+      // Handle images array - using indexed properties in FormData
+      if (Array.isArray(productData.images) && productData.images.length > 0) {
+        // Ensure each image has url and public_id
+        const formattedImages = productData.images.map((img, idx) => {
+          // If image is already an object with url and public_id, return as is
+          if (img && typeof img === 'object' && img.url && img.public_id) {
+            console.log(`Image ${idx} is valid with url and public_id:`, img);
+            return img;
+          }
+          // If image is a string (URL), create proper format
+          if (typeof img === 'string') {
+            const publicId = img.split('/').pop().split('.')[0]; // Extract public_id from URL
+            console.log(`Image ${idx} is string URL, created public_id:`, publicId);
+            return {
+              url: img,
+              public_id: publicId
+            };
+          }
+          console.error(`Image ${idx} is invalid:`, img);
+          return null;
+        }).filter(img => img !== null); // Remove any null values
+
+        console.log("Formatted images for update:", formattedImages);
+        
+        // Add images count to FormData for validation
+        formData.append('imagesCount', formattedImages.length.toString());
+        
+        // Append each image individually with indexed properties
+        formattedImages.forEach((img, index) => {
+          formData.append(`images[${index}][url]`, img.url);
+          formData.append(`images[${index}][public_id]`, img.public_id);
+        });
+      } else {
+        console.warn("No images array provided in productData update");
+        formData.append('imagesCount', '0');
       }
       
       // Log the formData contents for debugging
-      if (requestData instanceof FormData) {
-        console.log("Form data entries:");
-        for (let pair of requestData.entries()) {
-          console.log(`${pair[0]}: ${typeof pair[1] === 'object' ? 'File object' : pair[1]}`);
-        }
+      console.log("Form data entries for update:");
+      for (let pair of formData.entries()) {
+        console.log(`${pair[0]}: ${pair[1]}`);
       }
       
-      // Use the correct endpoint format - /:id instead of /seller/:id
-      const response = await productApi.put(`/${productId}`, requestData, {
+      const response = await productApi.put(`/${productId}`, formData, {
         headers: {
-          'Content-Type': requestData instanceof FormData ? 'multipart/form-data' : 'application/json',
+          'Content-Type': 'multipart/form-data',
         }
       });
       
       return response.data;
     } catch (error) {
       console.error(`Error updating product ${productId}:`, error);
+      console.error('Error response:', error.response?.data);
       throw error;
     }
   },
@@ -390,11 +500,34 @@ const productService = {
   // Delete a product (seller/admin only)
   deleteProduct: async (productId) => {
     try {
-      const response = await productApi.delete(`/seller/${productId}`);
-      return response.data;
+      // First get the product details to get image information
+      const response = await productApi.get(`/${productId}`);
+      const product = response.data;
+
+      // Delete images from Cloudinary if they exist
+      if (product.images && Array.isArray(product.images)) {
+        for (const image of product.images) {
+          if (image && image.public_id) {
+            try {
+              // Use the productApi instance for consistent headers
+              await productApi.delete(`/upload/${encodeURIComponent(image.public_id)}`);
+            } catch (imageError) {
+              console.error('Error deleting image from Cloudinary:', imageError);
+              // Continue with product deletion even if image deletion fails
+            }
+          }
+        }
+      }
+
+      // Delete the product
+      const deleteResponse = await productApi.delete(`/${productId}`);
+      return deleteResponse.data;
     } catch (error) {
-      console.error(`Error deleting product ${productId}:`, error);
-      throw error;
+      console.error('Error deleting product:', error);
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message);
+      }
+      throw new Error('Failed to delete product');
     }
   },
 
@@ -546,7 +679,137 @@ const productService = {
       console.error('Error fetching product stats by seller:', error);
       throw error;
     }
-  }
+  },
+
+  // Upload a product image
+  uploadProductImage: async (options) => {
+    try {
+      if (options.method === 'DELETE') {
+        // Check if the public_id appears to be a path containing folders
+        const hasFolder = options.public_id.includes('/');
+        
+        // For direct Cloudinary deletion use the new dedicated route
+        if (hasFolder) {
+          console.log(`Using direct Cloudinary delete for: ${options.public_id}`);
+          const response = await productApi.delete(`/upload/cloudinary/${encodeURIComponent(options.public_id)}`);
+          return response.data;
+        }
+        
+        // For simple IDs use the existing image/:public_id endpoint
+        console.log(`Using product image delete for: ${options.public_id}`);
+        const response = await productApi.delete(`/image/${options.public_id}`);
+        return response.data;
+      }
+
+      const formData = new FormData();
+      formData.append('file', options.file);
+      
+      const response = await productApi.post('/upload', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error handling product image:', error);
+      throw error;
+    }
+  },
+
+  // Upload a 3D model
+  uploadModel: async (file, platform) => {
+    try {
+      // Debug logging for file and request details
+      console.log('Starting model upload:', {
+        filename: file.name,
+        type: file.type,
+        size: file.size,
+        platform
+      });
+
+      // Create FormData object
+      const formData = new FormData();
+      
+      // Append the file with the correct file name
+      formData.append('file', file);
+      
+      // Explicitly add the platform
+      formData.append('platform', platform);
+      
+      console.log('Sending model upload request with FormData containing:',
+        [...formData.entries()].map(entry => {
+          if (entry[1] instanceof File) {
+            return `${entry[0]}: File(${entry[1].name}, ${entry[1].type}, ${entry[1].size} bytes)`;
+          }
+          return `${entry[0]}: ${entry[1]}`;
+        })
+      );
+
+      // Make the API request with increased timeout
+      const response = await productApi.post('/upload/model', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        },
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
+        timeout: 60000, // 60 second timeout
+        onUploadProgress: (progressEvent) => {
+          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          console.log(`Upload progress: ${percentCompleted}%`);
+        }
+      });
+
+      console.log('Model upload response:', response.data);
+
+      if (!response.data || !response.data.secure_url) {
+        throw new Error('Invalid response from server: Missing secure_url');
+      }
+
+      // Return the model data in the correct format
+      return {
+        url: response.data.secure_url,
+        public_id: response.data.public_id,
+        platform: response.data.platform || platform
+      };
+    } catch (error) {
+      console.error('Model upload error:', error);
+      console.error('Error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+      
+      throw new Error(`Upload failed: ${error.message}`);
+    }
+  },
+
+  // Delete a 3D model from Cloudinary
+  deleteModel: async (publicId) => {
+    try {
+      if (!validateCloudinaryConfig()) {
+        throw new Error('Cloudinary configuration is incomplete. Please check your environment variables.');
+      }
+
+      const timestamp = Math.round((new Date()).getTime() / 1000);
+      const signature = generateCloudinarySignature(publicId, timestamp);
+
+      const response = await axios.post(
+        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CONFIG.cloudName}/delete_by_token`,
+        {
+          public_id: publicId,
+          api_key: CLOUDINARY_CONFIG.apiKey,
+          timestamp,
+          signature
+        }
+      );
+
+      return response.data;
+    } catch (error) {
+      console.error('Error deleting 3D model:', error);
+      throw new Error('Failed to delete 3D model');
+    }
+  },
 };
 
 export default productService; 

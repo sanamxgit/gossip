@@ -1,104 +1,112 @@
 const express = require('express');
 const router = express.Router();
-const { upload } = require('../middleware/uploadMiddleware');
-const path = require('path');
 const { protect, seller, admin } = require('../middleware/authMiddleware');
-const fs = require('fs');
+const { upload, uploadToCloudinary, deleteFromCloudinary } = require('../middleware/cloudinaryMiddleware');
 
 // @route   POST /api/upload/product
-// @desc    Upload product images
+// @desc    Upload product images to Cloudinary
 // @access  Private/Seller
-router.post('/product', protect, seller, upload.array('images', 5), (req, res) => {
+router.post('/product', protect, seller, upload.array('images', 5), async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ message: 'No files uploaded' });
     }
     
-    const filePaths = req.files.map(file => file.path);
-    res.json({ paths: filePaths });
+    const uploadPromises = req.files.map(file => uploadToCloudinary(file, 'products'));
+    const results = await Promise.all(uploadPromises);
+    
+    res.json({ files: results });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
 
 // @route   POST /api/upload/category
-// @desc    Upload category image
+// @desc    Upload category image to Cloudinary
 // @access  Private/Admin
-router.post('/category', protect, admin, upload.single('image'), (req, res) => {
+router.post('/category', protect, admin, upload.single('image'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded' });
     }
     
-    res.json({ path: req.file.path });
+    const result = await uploadToCloudinary(req.file, 'categories');
+    res.json(result);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
 
 // @route   POST /api/upload/brand
-// @desc    Upload brand logo
+// @desc    Upload brand logo to Cloudinary
 // @access  Private/Admin
-router.post('/brand', protect, admin, upload.single('logo'), (req, res) => {
+router.post('/brand', protect, admin, upload.single('logo'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded' });
     }
     
-    res.json({ path: req.file.path });
+    const result = await uploadToCloudinary(req.file, 'brands');
+    res.json(result);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
 
 // @route   POST /api/upload/avatar
-// @desc    Upload user avatar
+// @desc    Upload user avatar to Cloudinary
 // @access  Private
-router.post('/avatar', protect, upload.single('avatar'), (req, res) => {
+router.post('/avatar', protect, upload.single('avatar'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded' });
     }
     
-    res.json({ path: req.file.path });
+    const result = await uploadToCloudinary(req.file, 'avatars');
+    res.json(result);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
 
 // @route   POST /api/upload/documents
-// @desc    Upload seller verification documents
+// @desc    Upload seller verification documents to Cloudinary
 // @access  Private
-router.post('/documents', protect, upload.array('documents', 3), (req, res) => {
+router.post('/documents', protect, upload.array('documents', 3), async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ message: 'No files uploaded' });
     }
     
-    const filePaths = req.files.map(file => file.path);
-    res.json({ paths: filePaths });
+    const uploadPromises = req.files.map(file => uploadToCloudinary(file, 'documents'));
+    const results = await Promise.all(uploadPromises);
+    
+    res.json({ files: results });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
 
 // @route   POST /api/upload/store
-// @desc    Upload seller store logo
+// @desc    Upload seller store logo to Cloudinary
 // @access  Private/Seller
-router.post('/store', protect, seller, upload.single('storeLogo'), (req, res) => {
+router.post('/store', protect, seller, upload.single('storeLogo'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded' });
     }
     
-    res.json({ path: req.file.path });
+    const result = await uploadToCloudinary(req.file, 'stores');
+    res.json(result);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
 
-// Add a new route for section images
-router.post('/sections', protect, admin, upload.single('image'), (req, res) => {
+// @route   POST /api/upload/sections
+// @desc    Upload section images to Cloudinary
+// @access  Private/Admin
+router.post('/sections', protect, admin, upload.single('image'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded' });
@@ -106,26 +114,12 @@ router.post('/sections', protect, admin, upload.single('image'), (req, res) => {
     
     // Get section type from request
     const sectionType = req.body.sectionType || 'default';
+    const folder = `sections/${sectionType}`;
     
-    // Create a sections folder if it doesn't exist
-    const sectionDir = path.join(uploadDir, 'sections', sectionType);
-    if (!fs.existsSync(sectionDir)) {
-      fs.mkdirSync(sectionDir, { recursive: true });
-    }
-    
-    // Generate a unique filename
-    const filename = `${Date.now()}-${req.file.originalname.replace(/\s+/g, '-').toLowerCase()}`;
-    const filepath = path.join(sectionDir, filename);
-    
-    // Move the file
-    fs.writeFileSync(filepath, req.file.buffer);
-    
-    // Return the file URL
-    const fileUrl = `/uploads/sections/${sectionType}/${filename}`;
+    const result = await uploadToCloudinary(req.file, folder);
     res.json({
       message: 'File uploaded successfully',
-      fileUrl,
-      filePath: fileUrl,
+      ...result
     });
   } catch (error) {
     console.error('Error uploading file:', error);
@@ -133,6 +127,21 @@ router.post('/sections', protect, admin, upload.single('image'), (req, res) => {
       message: 'Error uploading file',
       error: error.message
     });
+  }
+});
+
+// @route   DELETE /api/upload/:public_id
+// @desc    Delete file from Cloudinary
+// @access  Private
+router.delete('/:public_id', protect, async (req, res) => {
+  try {
+    const { public_id } = req.params;
+    const { resource_type = 'image' } = req.query;
+    
+    const result = await deleteFromCloudinary(public_id, resource_type);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 });
 

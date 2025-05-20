@@ -56,7 +56,7 @@ const Header = () => {
         <div className="container flex justify-between items-center">
           <div className="logo-search flex items-center gap-3">
             <Link to="/" className="logo">
-              LOGO
+              <img src="./logo1.png" alt="" srcset="" />
             </Link>
             <div className="search-container">
               <form onSubmit={handleSearch} className="search-form">

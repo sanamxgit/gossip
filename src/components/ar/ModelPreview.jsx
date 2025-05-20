@@ -1,139 +1,127 @@
 import React, { useState, useEffect, useRef } from 'react';
-import QRCodeGenerator from './QRCodeGenerator';
+import QRCode from 'qrcode.react';
+import { FaQrcode } from 'react-icons/fa';
 import './ModelPreview.css';
 
-const ModelPreview = ({ modelUrl, modelType, showQRCode = true }) => {
-  const [loading, setLoading] = useState(true);
+const ModelPreview = ({ modelUrl, modelType, iosUrl, androidUrl }) => {
+  const [isLoading, setIsLoading] = useState(true);
+  const [showQR, setShowQR] = useState(false);
   const [error, setError] = useState(null);
-  const [modelValid, setModelValid] = useState(false);
-  const qrCodeRef = useRef(null);
+  const modelViewerRef = useRef(null);
 
   useEffect(() => {
-    if (!modelUrl) {
-      setLoading(false);
-      return;
-    }
-
-    // Validate if the model URL is accessible
-    const checkModel = async () => {
-      setLoading(true);
+    // Reset states when model URL changes
+    setIsLoading(true);
       setError(null);
       
-      // Skip validation for blob URLs as HEAD requests aren't supported
-      if (modelUrl.startsWith('blob:')) {
-        setModelValid(true);
-        setLoading(false);
-        return;
-      }
-      
-      try {
-        const response = await fetch(modelUrl, { method: 'HEAD' });
-        if (response.ok) {
-          setModelValid(true);
-        } else {
-          setError(`Could not access model: ${response.statusText}`);
-          setModelValid(false);
+    // Add event listeners when the component mounts
+    const modelViewer = modelViewerRef.current;
+    if (modelViewer) {
+      const onProgress = (event) => {
+        if (event.detail.totalProgress === 1) {
+          setIsLoading(false);
         }
-      } catch (err) {
-        setError(`Error checking model: ${err.message}`);
-        setModelValid(false);
-      } finally {
-        setLoading(false);
-      }
-    };
+      };
 
-    checkModel();
+      modelViewer.addEventListener('progress', onProgress);
+      modelViewer.addEventListener('error', handleModelError);
+      modelViewer.addEventListener('load', handleModelLoad);
+
+      return () => {
+        modelViewer.removeEventListener('progress', onProgress);
+        modelViewer.removeEventListener('error', handleModelError);
+        modelViewer.removeEventListener('load', handleModelLoad);
+      };
+    }
   }, [modelUrl]);
 
-  // Generate AR Quick Look HTML URL for iOS
-  const getQuickLookURL = (modelUrl) => {
-    const encodedModelUrl = encodeURIComponent(modelUrl);
-    return `${window.location.origin}/ar-quicklook/?url=${encodedModelUrl}&title=3D%20Model`;
+  // Generate the AR Quick Look URL for iOS
+  const getARQuickLookUrl = (url) => {
+    return `https://developer.apple.com/augmented-reality/quick-look/?url=${encodeURIComponent(url)}`;
   };
 
-  if (loading) {
-    return (
-      <div className="model-preview loading">
-        <div className="loading-spinner"></div>
-        <p>Loading model...</p>
-      </div>
-    );
-  }
+  // Generate the Scene Viewer URL for Android
+  const getSceneViewerUrl = (url) => {
+    return `@https://arvr.google.com/scene-viewer/1.0?file=${encodeURIComponent(url)}&mode=ar_preferred`;
+  };
 
-  if (!modelUrl) {
-    return (
-      <div className="model-preview empty">
-        <p>No model selected for preview</p>
-      </div>
-    );
-  }
+  const toggleQRCode = () => {
+    setShowQR(!showQR);
+  };
 
-  if (error) {
-    return (
-      <div className="model-preview error">
-        <p>Error: {error}</p>
-        <p>URL: {modelUrl}</p>
-      </div>
-    );
-  }
+  const handleModelLoad = () => {
+    setIsLoading(false);
+    setError(null);
+  };
 
-  // For iOS USDZ models, we can only offer a link
-  if (modelType === 'usdz') {
-    return (
-      <div className="model-preview usdz">
-        <p>iOS AR Model (USDZ)</p>
-        <a 
-          href={getQuickLookURL(modelUrl)} 
-          rel="noreferrer"
-          target="_blank"
-          className="ar-preview-link"
-        >
-          View iOS AR Model
-        </a>
-        <p className="preview-note">
-          Note: USDZ models can only be previewed on iOS devices
-        </p>
-        <div className="model-info">
-          <p>Model URL: <a href={modelUrl} target="_blank" rel="noopener noreferrer">{modelUrl}</a></p>
-        </div>
-        
-        {showQRCode && <QRCodeGenerator iosUrl={modelUrl} ref={qrCodeRef} />}
-      </div>
-    );
-  }
+  const handleModelError = () => {
+    setIsLoading(false);
+    setError('Failed to load 3D model');
+  };
 
-  // For Android GLB/GLTF models, we can embed a 3D viewer
-  if (modelType === 'glb' || modelType === 'gltf') {
+  // Use androidUrl or modelUrl for the 3D preview
+  const previewUrl = androidUrl || modelUrl;
+
     return (
-      <div className="model-preview glb">
-        <p>Android AR Model ({modelType.toUpperCase()})</p>
+    <div className="model-preview-container">
+      <div className="model-viewer-container">
         <model-viewer
-          src={modelUrl}
+          ref={modelViewerRef}
+          src={previewUrl}
           alt="3D model preview"
-          ar
-          ar-modes="webxr scene-viewer quick-look"
-          camera-controls
           auto-rotate
-          environment-image="neutral"
-          shadow-intensity="1"
-          style={{ width: "100%", height: "300px" }}
-        ></model-viewer>
-        <div className="model-info">
-          <p>Model URL: <a href={modelUrl} target="_blank" rel="noopener noreferrer">{modelUrl}</a></p>
+          camera-controls
+          ar
+          ar-modes="webxr scene-viewer"
+          loading="eager"
+          reveal="auto"
+          poster="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+        >
+          {isLoading && <div className="loading-spinner" />}
+          {error && <div className="error-message">{error}</div>}
+          <div className="progress-bar" slot="progress-bar">
+            <div className="update-bar"></div>
         </div>
-        
-        {showQRCode && <QRCodeGenerator androidUrl={modelUrl} ref={qrCodeRef} />}
+        </model-viewer>
+        <button className="ar-button" onClick={toggleQRCode}>
+          <FaQrcode /> View in Your Room
+        </button>
       </div>
-    );
-  }
 
-  // Fallback for other model types
-  return (
-    <div className="model-preview unknown">
-      <p>Model preview not available for type: {modelType}</p>
-      <div className="model-info">
-        <p>Model URL: <a href={modelUrl} target="_blank" rel="noopener noreferrer">{modelUrl}</a></p>
+      {showQR && (
+        <div className="qr-overlay">
+          <div className="qr-modal">
+            <button className="close-qr" onClick={toggleQRCode}>×</button>
+            <h3>View in Your Room</h3>
+            <div className="qr-codes-container">
+              {iosUrl && (
+                <div className="qr-code-section">
+                  <h4>iOS (iPhone/iPad)</h4>
+                  <QRCode 
+                    value={getARQuickLookUrl(iosUrl)}
+                    size={150}
+                    level="H"
+                    includeMargin={true}
+                  />
+                  <p className="scan-text">Scan with iOS device</p>
+                </div>
+              )}
+              {(androidUrl || modelUrl) && (
+                <div className="qr-code-section">
+                  <h4>Android</h4>
+                  <QRCode 
+                    value={getSceneViewerUrl(androidUrl || modelUrl)}
+                    size={150}
+                    level="H"
+                    includeMargin={true}
+                  />
+                  <p className="scan-text">Scan with Android device</p>
+                </div>
+              )}
+            </div>
+          </div>
       </div>
+      )}
     </div>
   );
 };

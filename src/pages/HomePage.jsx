@@ -33,12 +33,16 @@ const HomePage = () => {
         let sections = [];
         
         try {
-          // This is where we would call the API endpoint
-          const response = await fetch('/api/homepage/sections');
+          // Add timestamp to prevent caching
+          const timestamp = new Date().getTime();
+          const response = await fetch(`/api/homepage/sections?_=${timestamp}`);
           if (response.ok) {
             const data = await response.json();
             sections = data;
             console.log('HomePage: Loaded sections from API:', sections);
+            
+            // Update localStorage with new data
+            localStorage.setItem('homePageSections', JSON.stringify(sections));
           } else {
             // Fallback to localStorage if API fails
             const savedSections = localStorage.getItem('homePageSections');
@@ -78,82 +82,84 @@ const HomePage = () => {
         // Set sections and process them
         setHomePageSections(sections)
 
-        // Fetch real products from API
-        // All products for browse section
+        // Fetch real products from API with cache-busting
         try {
-          const productsResponse = await productService.getAllProducts({ limit: 10 })
+          const productsResponse = await productService.getAllProducts({ 
+            limit: 10,
+            _: new Date().getTime() // Add timestamp to prevent caching
+          });
           console.log("Products from API:", productsResponse)
           setBrowseProducts(productsResponse.products || [])
         } catch (apiError) {
           console.error("Error fetching all products:", apiError)
-          // Set empty array if API fails
           setBrowseProducts([])
         }
           
-        // Featured products for flash sale  
+        // Featured products for flash sale with cache-busting
         try {
-          const featuredProductsResponse = await productService.getFeaturedProducts(8)
+          const featuredProductsResponse = await productService.getFeaturedProducts(8, {
+            _: new Date().getTime() // Add timestamp to prevent caching
+          });
           console.log("Featured products from API:", featuredProductsResponse)
           setFlashSaleProducts(featuredProductsResponse.products || [])
         } catch (apiError) {
           console.error("Error fetching featured products:", apiError)
-          // Process mock data from section if API fails
           if (sections.some(s => s.type === "products" && s.active)) {
             processHomepageSections(sections.filter(s => s.type === "products"))
           }
         }
           
-        // Trending products (new arrivals)
+        // New arrivals with cache-busting
         try {
-          const newArrivalsResponse = await productService.getNewArrivals(4)
+          const newArrivalsResponse = await productService.getNewArrivals(4, {
+            _: new Date().getTime() // Add timestamp to prevent caching
+          });
           console.log("New arrivals from API:", newArrivalsResponse)
           setTrendingProducts(newArrivalsResponse.products || [])
         } catch (apiError) {
           console.error("Error fetching new arrivals:", apiError)
-          // Keep empty array if API fails
           setTrendingProducts([])
         }
           
-        // Categories
+        // Categories with cache-busting
         try {
-          const categoriesResponse = await categoryService.getFeaturedCategories(4)
+          const categoriesResponse = await categoryService.getFeaturedCategories(4, {
+            _: new Date().getTime() // Add timestamp to prevent caching
+          });
           console.log("Categories from API:", categoriesResponse)
           if (categoriesResponse.categories && categoriesResponse.categories.length > 0) {
             setCategories(categoriesResponse.categories || [])
           } else if (sections.some(s => s.type === "categories" && s.active)) {
-            // Process mock data from section if API returns empty
             processHomepageSections(sections.filter(s => s.type === "categories"))
           }
         } catch (apiError) {
           console.error("Error fetching categories:", apiError)
           if (sections.some(s => s.type === "categories" && s.active)) {
-            // Process mock data from section if API fails
             processHomepageSections(sections.filter(s => s.type === "categories"))
           }
         }
           
-        // Icon categories
+        // Icon categories with cache-busting
         try {
-          const topCategoriesResponse = await categoryService.getTopLevelCategories()
+          const topCategoriesResponse = await categoryService.getTopLevelCategories({
+            _: new Date().getTime() // Add timestamp to prevent caching
+          });
           console.log("Top categories from API:", topCategoriesResponse)
           
-          // Transform categories to match icon-categories format
           if (topCategoriesResponse.categories && topCategoriesResponse.categories.length > 0) {
             const transformedIconCategories = topCategoriesResponse.categories.map(cat => ({
               name: cat.name,
-              imageUrl: cat.image || '/placeholder.svg', // Use image instead of emoji/icon
+              imageUrl: cat.image || '/placeholder.svg',
               link: `/category/${cat.slug || cat._id}`
             }))
             
             setIconCategories(transformedIconCategories)
           } else if (sections.some(s => s.type === "icon-categories" && s.active)) {
-            // Process mock data from section if API returns empty
             processHomepageSections(sections.filter(s => s.type === "icon-categories"))
           }
         } catch (apiError) {
           console.error("Error fetching top categories:", apiError)
           if (sections.some(s => s.type === "icon-categories" && s.active)) {
-            // Process mock data from section if API fails
             processHomepageSections(sections.filter(s => s.type === "icon-categories"))
           }
         }
@@ -165,7 +171,6 @@ const HomePage = () => {
 
       } catch (error) {
         console.error("Error fetching data:", error)
-        // Process all sections with default data as fallback
         processHomepageSections(getDefaultSections())
       } finally {
         setIsLoading(false)

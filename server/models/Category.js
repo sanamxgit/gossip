@@ -1,9 +1,39 @@
 const mongoose = require('mongoose');
 
+const attributeSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  type: {
+    type: String,
+    enum: ['text', 'number', 'select', 'boolean'],
+    default: 'text'
+  },
+  options: [{
+    type: String,
+    trim: true
+  }],
+  required: {
+    type: Boolean,
+    default: false
+  },
+  unit: {
+    type: String,
+    trim: true
+  }
+});
+
 const categorySchema = new mongoose.Schema({
   name: {
     type: String,
-    required: [true, 'Category name is required'],
+    required: true,
+    trim: true
+  },
+  slug: {
+    type: String,
+    required: true,
     unique: true,
     trim: true
   },
@@ -11,49 +41,74 @@ const categorySchema = new mongoose.Schema({
     type: String,
     trim: true
   },
-  image: {
-    type: String,
-    default: ''
-  },
-  slug: {
-    type: String,
-    lowercase: true,
-    unique: true
-  },
-  parentCategory: {
+  parent: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Category',
     default: null
   },
-  active: {
+  ancestors: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Category'
+  }],
+  image: {
+    url: String,
+    public_id: String
+  },
+  icon: {
+    url: String,
+    public_id: String
+  },
+  attributes: [attributeSchema],
+  isActive: {
     type: Boolean,
     default: true
   },
-  createdAt: {
-    type: Date,
-    default: Date.now
+  level: {
+    type: Number,
+    default: 0
+  },
+  order: {
+    type: Number,
+    default: 0
   }
+}, {
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
 });
 
-// Create slug from name before saving
+// Virtual for child categories
+categorySchema.virtual('children', {
+  ref: 'Category',
+  localField: '_id',
+  foreignField: 'parent'
+});
+
+// Pre-save middleware to generate slug
 categorySchema.pre('save', function(next) {
-  if (this.isModified('name')) {
-    this.slug = this.name.toLowerCase().replace(/\s+/g, '-');
+  if (!this.slug) {
+    this.slug = this.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)+/g, '');
   }
   next();
 });
 
-// Virtual for subcategories
-categorySchema.virtual('subcategories', {
-  ref: 'Category',
-  localField: '_id',
-  foreignField: 'parentCategory'
+// Pre-save middleware to update ancestors and level
+categorySchema.pre('save', async function(next) {
+  if (this.parent) {
+    const parent = await this.constructor.findById(this.parent);
+    if (parent) {
+      this.ancestors = [...parent.ancestors, parent._id];
+      this.level = parent.level + 1;
+    }
+  } else {
+    this.ancestors = [];
+    this.level = 0;
+  }
+  next();
 });
-
-// Static method to get all top-level categories (those without a parent)
-categorySchema.statics.getTopCategories = function() {
-  return this.find({ parentCategory: null }).populate('subcategories');
-};
 
 const Category = mongoose.model('Category', categorySchema);
 

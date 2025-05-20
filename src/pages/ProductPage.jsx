@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useParams } from "react-router-dom"
 import { useCart } from "../contexts/CartContext"
 import ARButton from "../components/ar/ARButton"
+import ModelPreview from "../components/ar/ModelPreview"
 import ProductCard from "../components/products/ProductCard"
 import ErrorBoundary from "../components/common/ErrorBoundary"
 import productService from "../services/api/productService"
@@ -18,6 +19,8 @@ const ProductPage = () => {
   const [relatedProducts, setRelatedProducts] = useState([])
   const [error, setError] = useState(null)
   const [selectedColor, setSelectedColor] = useState(null)
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [showQR, setShowQR] = useState(false);
 
   useEffect(() => {
     // Reset state when product ID changes
@@ -105,6 +108,82 @@ const ProductPage = () => {
     return ["#9A8A78", "#333333", "#D9D9D9"]; // Default beige, black, light grey
   }
 
+  const handlePrevImage = () => {
+    setCurrentImageIndex((prev) => 
+      prev === 0 ? product.images.length - 1 : prev - 1
+    );
+  };
+
+  const handleNextImage = () => {
+    setCurrentImageIndex((prev) => 
+      prev === product.images.length - 1 ? 0 : prev + 1
+    );
+  };
+
+  const handleThumbnailClick = (index) => {
+    setCurrentImageIndex(index);
+  };
+
+  // Make sure image paths are fully qualified URLs
+  const getImageUrl = (imagePath) => {
+    if (!imagePath) return "/placeholder.svg";
+    
+    // If imagePath is an object with url property (from Cloudinary)
+    if (typeof imagePath === 'object' && imagePath.url) {
+      return imagePath.url;
+    }
+    
+    // If imagePath is an object with secure_url property (from Cloudinary)
+    if (typeof imagePath === 'object' && imagePath.secure_url) {
+      return imagePath.secure_url;
+    }
+    
+    // Convert to string to handle any non-string inputs
+    const path = String(imagePath);
+    
+    // If already a fully qualified URL, return as is
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      return path;
+    }
+    
+    // If it's just a filename (not a path), prepend the uploads directory
+    if (!path.startsWith('/')) {
+      return `${process.env.REACT_APP_UPLOAD_URL || 'http://localhost:5000/uploads'}/${path}`;
+    }
+    
+    // If it's an absolute path to the server
+    if (path.startsWith('/uploads/')) {
+      return `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}${path}`;
+    }
+    
+    // Otherwise, return as is with API URL
+    return `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}${path}`;
+  };
+
+  // Helper function to extract model URL from model object or string
+  const getModelUrl = (model) => {
+    if (!model) return '';
+    return typeof model === 'object' && model.url ? model.url : model;
+  };
+
+  // Safely render ARButton component
+  const renderARButton = () => {
+    if (product.arModels?.ios || product.arModels?.android) {
+      return (
+        <ErrorBoundary silent={true}>
+          <div className="ar-button-container">
+            <ARButton 
+              iosUrl={getModelUrl(product.arModels?.ios)} 
+              androidUrl={getModelUrl(product.arModels?.android)} 
+              productName={product.title} 
+            />
+          </div>
+        </ErrorBoundary>
+      );
+    }
+    return null;
+  };
+
   if (loading) {
     return (
       <div className="product-page loading">
@@ -137,62 +216,89 @@ const ProductPage = () => {
     )
   }
   
-  // Make sure image paths are fully qualified URLs
-  const getImageUrl = (imagePath) => {
-    if (!imagePath) return "/placeholder.svg";
-    
-    // If already a fully qualified URL, return as is
-    if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
-      return imagePath;
-    }
-    
-    // If it's just a filename (not a path), prepend the uploads directory
-    if (!imagePath.startsWith('/')) {
-      return `${process.env.REACT_APP_UPLOAD_URL || 'http://localhost:5000/uploads'}/${imagePath}`;
-    }
-    
-    // If it's an absolute path to the server
-    if (imagePath.startsWith('/uploads/')) {
-      return `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}${imagePath}`;
-    }
-    
-    // Otherwise, return as is with API URL
-    return `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}${imagePath}`;
-  };
-
-  // Safely render ARButton component
-  const renderARButton = () => {
-    if (product.arModels?.ios || product.arModels?.android) {
-      return (
-        <ErrorBoundary silent={true}>
-          <div className="ar-button-container">
-            <ARButton 
-              iosUrl={product.arModels?.ios} 
-              androidUrl={product.arModels?.android} 
-              productName={product.title} 
-            />
-          </div>
-        </ErrorBoundary>
-      );
-    }
-    return null;
-  };
-
   return (
     <div className="product-page">
       <div className="container">
         <div className="product-details">
           <div className="product-gallery">
-            <div className="main-image">
-              <img src={getImageUrl(product.images?.[0])} alt={product.title} />
+            <div className="main-image-container">
+              {currentImageIndex === product.images.length && (product.arModels?.ios || product.arModels?.android) ? (
+                <ModelPreview 
+                  modelUrl={getModelUrl(product.arModels?.android)}
+                  iosUrl={getModelUrl(product.arModels?.ios)}
+                  androidUrl={getModelUrl(product.arModels?.android)}
+                />
+              ) : (
+                <>
+                  {product.images.length > 1 && (
+                    <button className="nav-button prev" onClick={handlePrevImage}>
+                      <i className="fas fa-chevron-left"></i>
+                    </button>
+                  )}
+                  <img 
+                    src={getImageUrl(product.images[currentImageIndex])} 
+                    alt={product.title} 
+                    className="main-image"
+                  />
+                  {product.images.length > 1 && (
+                    <button className="nav-button next" onClick={handleNextImage}>
+                      <i className="fas fa-chevron-right"></i>
+                    </button>
+                  )}
+                </>
+              )}
             </div>
-            <div className="thumbnail-images">
-              {(product.images || []).map((image, index) => (
-                <div key={index} className="thumbnail">
-                  <img src={getImageUrl(image)} alt={`${product.title} - ${index + 1}`} />
+
+            <div className="thumbnails-container">
+              {product.images.map((image, index) => (
+                <div 
+                  key={index}
+                  className={`thumbnail ${currentImageIndex === index ? 'active' : ''}`}
+                  onClick={() => handleThumbnailClick(index)}
+                >
+                  <img 
+                    src={getImageUrl(image)} 
+                    alt={`${product.title} thumbnail ${index + 1}`}
+                  />
                 </div>
               ))}
+              {(product.arModels?.ios || product.arModels?.android) && (
+                <div 
+                  className={`thumbnail model-thumbnail ${currentImageIndex === product.images.length ? 'active' : ''}`}
+                  onClick={() => handleThumbnailClick(product.images.length)}
+                >
+                  <div className="model-icon">3D</div>
+                </div>
+              )}
             </div>
+
+            {(product.arModels?.ios || product.arModels?.android) && showQR && (
+              <div className="ar-model-section">
+                <h3>View in Your Space</h3>
+                <div className="model-previews">
+                  {product.arModels?.ios && (
+                    <div className="model-preview">
+                      <h4>iOS (iPhone/iPad)</h4>
+                      <ModelPreview 
+                        modelUrl={getModelUrl(product.arModels.ios)}
+                        modelType="usdz"
+                        showQRCode={true}
+                      />
+                    </div>
+                  )}
+                  {product.arModels?.android && (
+                    <div className="model-preview">
+                      <h4>Android</h4>
+                      <ModelPreview 
+                        modelUrl={getModelUrl(product.arModels.android)}
+                        modelType="glb"
+                        showQRCode={true}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="product-info">
@@ -271,60 +377,12 @@ const ProductPage = () => {
             <div className="lifestyle-grid">
               {(product.images || []).slice(0, Math.min(product.images.length, 4)).map((image, index) => (
                 <div key={`lifestyle-${index}`} className={`lifestyle-image lifestyle-image-${index + 1}`}>
-                  <img src={getImageUrl(image)} alt={`${product.title} lifestyle ${index + 1}`} />
+                  <img src={getImageUrl(image)} alt={`${product.title} lifestyle image ${index + 1}`} />
                 </div>
               ))}
             </div>
           </div>
-          
-          {product.specifications && Object.keys(product.specifications).length > 0 && (
-            <div className="product-specifications-section">
-              <h3>Technical Details:</h3>
-              <div className="specifications-content">
-                <ul className="specifications-list">
-                  {Object.entries(product.specifications).map(([key, value], index) => (
-                    <li key={index}>
-                      <span className="spec-name">{key}:</span>
-                      <span className="spec-value">{value}</span>
-                    </li>
-                  ))}
-                </ul>
-                
-                {product.images && product.images.length > 0 && (
-                  <div className="specifications-image">
-                    <img src={getImageUrl(product.images[product.images.length - 1])} alt="Product specifications" />
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
         </div>
-
-        {relatedProducts && relatedProducts.length > 0 && (
-          <div className="related-products">
-            <h2>More {product.category?.name || "Products"}</h2>
-            <ErrorBoundary silent={true}>
-              <div className="products-grid">
-                {relatedProducts.map((relatedProduct) => (
-                  <ProductCard key={relatedProduct._id} product={relatedProduct} />
-                ))}
-              </div>
-            </ErrorBoundary>
-          </div>
-        )}
-        
-        {relatedProducts && relatedProducts.length > 0 && (
-          <div className="style-it-with">
-            <h2>Style It With</h2>
-            <ErrorBoundary silent={true}>
-              <div className="products-grid">
-                {relatedProducts.slice(0, Math.min(relatedProducts.length, 4)).map((relatedProduct) => (
-                  <ProductCard key={`style-${relatedProduct._id}`} product={relatedProduct} />
-                ))}
-              </div>
-            </ErrorBoundary>
-          </div>
-        )}
       </div>
     </div>
   )

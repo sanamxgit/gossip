@@ -4,12 +4,14 @@ import React, { useState, useEffect } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { useAuth } from "../contexts/AuthContext"
 import productService from '../services/api/productService'
+import { API_URL } from '../config'
 import "./SellerDashboard.css"
 import { FaBox, FaShoppingBag, FaChartBar, FaCog, FaPowerOff, FaEdit, FaTrash, FaEye, FaUpload } from 'react-icons/fa'
 import orderService from '../services/api/orderService'
 import authService from '../services/api/authService'
 import modelUploadService from '../services/api/modelUploadService'
 import ModelPreview from '../components/ar/ModelPreview'
+import axios from 'axios'
 
 const SellerDashboard = () => {
   const { user, isAuthenticated, loading, logout } = useAuth()
@@ -201,21 +203,32 @@ const SellerDashboard = () => {
   const handleDeleteProduct = async (productId) => {
     if (window.confirm("Are you sure you want to delete this product? This action cannot be undone.")) {
       try {
-        await productService.deleteProduct(productId)
+        setIsLoading(true);
+        setErrorMessage(null);
+
+        // Delete the product (image deletion is now handled in the service)
+        await productService.deleteProduct(productId);
+        
         // Remove product from state
-        setProducts(products.filter(product => product._id !== productId))
+        setProducts(products.filter(product => product._id !== productId));
+        
         // Update statistics
         setStatistics(prev => ({
           ...prev,
           totalProducts: prev.totalProducts - 1
-        }))
-        alert("Product deleted successfully!")
+        }));
+
+        alert("Product deleted successfully!");
       } catch (error) {
-        console.error("Error deleting product:", error)
-        alert("Error deleting product. Please try again.")
+        console.error("Error deleting product:", error);
+        const errorMessage = error.message || "Error deleting product. Please try again.";
+        setErrorMessage(errorMessage);
+        alert(errorMessage);
+      } finally {
+        setIsLoading(false);
       }
     }
-  }
+  };
 
   const handleProductFormChange = (e) => {
     const { name, value } = e.target
@@ -225,51 +238,118 @@ const SellerDashboard = () => {
     }))
   }
 
-  const handleImageUpload = (e) => {
-    const files = Array.from(e.target.files)
-    if (files.length === 0) return
+  const handleImageUpload = async (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
 
-    // Limit to 5 images total
-    const totalImages = productFormData.images.length + files.length
+    // Check total number of images (existing + new)
+    const totalImages = previewImages.length + files.length;
     if (totalImages > 5) {
-      alert("You can upload a maximum of 5 images.")
-      return
+      alert("You can upload a maximum of 5 images.");
+      return;
     }
 
-    // Create preview URLs and add files to form data
-    const newPreviewImages = [...previewImages]
-    const newImages = [...productFormData.images]
+    try {
+      // Check for duplicate images before uploading
+      const existingUrls = previewImages.map(img => 
+        typeof img === 'string' ? img : img.url
+      );
 
-    files.forEach(file => {
-      // Create preview URL
-      const previewUrl = URL.createObjectURL(file)
-      newPreviewImages.push(previewUrl)
+      const uploadPromises = files.map(async (file) => {
+        // Create a temporary URL to check for duplicates
+        const tempUrl = URL.createObjectURL(file);
+        if (existingUrls.includes(tempUrl)) {
+          URL.revokeObjectURL(tempUrl);
+          return null;
+        }
+        URL.revokeObjectURL(tempUrl);
 
-      // Add file to form data
-      newImages.push(file)
-    })
+        const formData = new FormData();
+        formData.append('file', file);
 
-    setPreviewImages(newPreviewImages)
-    setProductFormData(prev => ({
-      ...prev,
-      images: newImages
-    }))
-  }
+        const response = await axios.post(`${API_URL}/api/products/upload`, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        });
 
-  const handleRemoveImage = (index) => {
-    // Remove image from preview and form data
-    const newPreviewImages = [...previewImages]
-    const newImages = [...productFormData.images]
+        return response.data;
+      });
 
-    newPreviewImages.splice(index, 1)
-    newImages.splice(index, 1)
+      const uploadedImages = (await Promise.all(uploadPromises)).filter(img => img !== null);
 
-    setPreviewImages(newPreviewImages)
-    setProductFormData(prev => ({
-      ...prev,
-      images: newImages
-    }))
-  }
+      // Update preview images and form data
+      const newPreviewImages = [...previewImages];
+      const newImages = [...productFormData.images];
+
+      uploadedImages.forEach(image => {
+        if (image) {
+          const imageUrl = image.secure_url;
+          // Check if image URL already exists
+          if (!newPreviewImages.includes(imageUrl)) {
+            newPreviewImages.push(imageUrl);
+            newImages.push({
+              url: imageUrl,
+              public_id: image.public_id
+            });
+          }
+        }
+      });
+
+      setPreviewImages(newPreviewImages);
+      setProductFormData(prev => ({
+        ...prev,
+        images: newImages
+      }));
+    } catch (error) {
+      console.error('Error uploading images:', error);
+      alert('Failed to upload images. Please try again.');
+    }
+  };
+
+  const handleRemoveImage = async (index) => {
+    try {
+      const imageToRemove = productFormData.images[index];
+      
+      // If the image has a public_id (Cloudinary image), try to delete it from Cloudinary
+      if (imageToRemove && imageToRemove.public_id) {
+        try {
+          console.log('Attempting to delete image with public_id:', imageToRemove.public_id);
+          
+          // Only try to delete from server if this is an edit of an existing product
+          if (productFormData.id) {
+            await productService.uploadProductImage({
+              method: 'DELETE',
+              public_id: imageToRemove.public_id
+            });
+          } else {
+            // This is a new product draft, just log that we're skipping server deletion
+            console.log('Skipping server deletion for new product draft');
+          }
+        } catch (deleteError) {
+          // Just log the error but continue with removing from state
+          console.error('Error deleting image from server:', deleteError);
+          console.log('Continuing with local removal...');
+        }
+      }
+
+      // Always remove image from preview and form data (local state)
+      const newPreviewImages = previewImages.filter((_, i) => i !== index);
+      const newImages = productFormData.images.filter((_, i) => i !== index);
+
+      setPreviewImages(newPreviewImages);
+      setProductFormData(prev => ({
+        ...prev,
+        images: newImages
+      }));
+      
+      console.log('Image removed from local state successfully');
+    } catch (error) {
+      console.error('Error removing image:', error);
+      alert('Failed to remove image from local state. Please try again.');
+    }
+  };
 
   const handleModelUpload = async (e, platform) => {
     const file = e.target.files[0];
@@ -296,82 +376,112 @@ const SellerDashboard = () => {
       return;
     }
 
-    // Store file for later upload
-    setModelFiles(prev => ({
-      ...prev,
-      [platform]: file
-    }));
-
-    // Create a temporary blob URL for preview
-    const previewUrl = URL.createObjectURL(file);
-    setModelPreviews(prev => ({
-      ...prev,
-      [platform]: previewUrl
-    }));
-
-    // Clear error
-    setModelErrors(prev => ({
-      ...prev,
-      [platform]: null
-    }));
-
     try {
-      // Start upload to GitHub
-      setModelUploading(prev => ({
+      setModelUploading(prev => ({ ...prev, [platform]: true }));
+
+      // Upload model to Cloudinary
+      const result = await productService.uploadModel(file, platform);
+      
+      console.log(`${platform} model upload result:`, result);
+      
+      // Update the form data with the model URL and public_id
+      setProductFormData(prev => {
+        // Make sure arModels object exists
+        const currentArModels = prev.arModels || {};
+        
+        // Create the updated arModels object with proper structure
+        const updatedArModels = {
+          ...currentArModels,
+          [platform]: {
+            url: result.url,
+            public_id: result.public_id
+          }
+        };
+        
+        console.log('Updated arModels object:', updatedArModels);
+        
+        return {
+          ...prev,
+          arModels: updatedArModels
+        };
+      });
+
+      // Clear any previous errors
+      setModelErrors(prev => ({ ...prev, [platform]: null }));
+
+      // Set preview URL
+      setModelPreviews(prev => ({
         ...prev,
-        [platform]: true
+        [platform]: result.url
       }));
-
-      console.log(`Uploading ${platform} model file:`, file.name)
-      const modelType = platform === 'ios' ? 'usdz' : 'glb';
-      const uploadResponse = await modelUploadService.uploadModelToGitHub(file, modelType);
-      console.log(`Upload response for ${platform}:`, uploadResponse)
-
-      // Update the product form data with the uploaded model URL
-      if (platform === 'ios') {
-        setProductFormData(prev => ({
-          ...prev,
-          arIosUrl: uploadResponse.url
-        }));
-        console.log("Updated iOS URL:", uploadResponse.url)
-      } else {
-        setProductFormData(prev => ({
-          ...prev,
-          arAndroidUrl: uploadResponse.url
-        }));
-        console.log("Updated Android URL:", uploadResponse.url)
-      }
-
-      // Show success message
-      alert(`Successfully uploaded ${platform === 'ios' ? 'iOS' : 'Android'} 3D model to GitHub.`);
     } catch (error) {
+      console.error(`Error uploading ${platform} model:`, error);
       setModelErrors(prev => ({
         ...prev,
-        [platform]: `Error uploading model: ${error.message}`
+        [platform]: `Failed to upload model: ${error.message}`
       }));
-      console.error(`Error uploading ${platform} model:`, error);
     } finally {
-      setModelUploading(prev => ({
+      setModelUploading(prev => ({ ...prev, [platform]: false }));
+    }
+  };
+
+  // Handle model deletion
+  const handleModelDelete = async (platform) => {
+    try {
+      const arModels = productFormData.arModels || {};
+      const publicId = arModels[platform]?.public_id;
+      
+      if (!publicId) {
+        console.log(`No ${platform} model to delete`);
+        return;
+      }
+
+      console.log(`Deleting ${platform} model with public_id:`, publicId);
+      await productService.deleteModel(publicId);
+
+      // Clear the model URL and public_id from form data
+      setProductFormData(prev => {
+        // Create a copy of the current arModels
+        const updatedArModels = { ...prev.arModels };
+        
+        // Remove this platform's model data
+        updatedArModels[platform] = {};
+        
+        return {
+          ...prev,
+          arModels: updatedArModels
+        };
+      });
+
+      // Clear preview
+      setModelPreviews(prev => ({
         ...prev,
-        [platform]: false
+        [platform]: null
       }));
+    } catch (error) {
+      console.error(`Error deleting ${platform} model:`, error);
+      alert(`Failed to delete ${platform} model: ${error.message}`);
     }
   };
 
   const handleProductFormSubmit = async (e) => {
     e.preventDefault()
-    setErrorMessage("")
     setIsSubmitting(true)
+    setErrorMessage(null)
 
     try {
-      // Convert ARModels URLs to a proper object structure
-      const arModelsData = {
-        ios: productFormData.arIosUrl || "",
-        android: productFormData.arAndroidUrl || ""
-      }
+      // Prepare the arModels data with proper structure
+      const arModels = productFormData.arModels || {};
+      
+      // Format arModels to make sure it has the correct structure
+      const formattedArModels = {
+        ios: arModels.ios || {},
+        android: arModels.android || {}
+      };
+      
+      console.log("AR Models being submitted:", formattedArModels);
 
-      console.log("AR Models being submitted:", arModelsData)
-
+      // Prepare the form data
       const formData = {
         title: productFormData.title,
         price: parseFloat(productFormData.price),
@@ -380,12 +490,30 @@ const SellerDashboard = () => {
         category: productFormData.category,
         brand: productFormData.brand || "651d72f84b14d81584889191",
         stock: parseInt(productFormData.stock),
-        images: productFormData.images,
-        arModels: arModelsData,
+        arModels: formattedArModels,
         colors: productFormData.colors
       }
 
-      console.log("Submitting form data:", formData)
+      // Handle images properly
+      if (productFormData.images && Array.isArray(productFormData.images)) {
+        // Filter out any null or undefined values
+        formData.images = productFormData.images.filter(img => img != null).map(img => {
+          // If the image is already an object with url and public_id, use it as is
+          if (img && typeof img === 'object' && img.url && img.public_id) {
+            return img;
+          }
+          // If it's a string URL, create an object with url and a placeholder public_id
+          if (typeof img === 'string') {
+            return {
+              url: img,
+              public_id: img.split('/').pop() // Use the filename as public_id
+            };
+          }
+          return null;
+        }).filter(img => img !== null); // Remove any null values
+      }
+
+      console.log("Submitting form data:", formData);
 
       let response
       if (productFormData.id) {
@@ -465,6 +593,41 @@ const SellerDashboard = () => {
       colors: newColors
     }));
   }
+
+  const getImageUrl = (imagePath) => {
+    if (!imagePath) return "/placeholder.svg";
+    
+    // If imagePath is an object with url property (from Cloudinary)
+    if (typeof imagePath === 'object' && imagePath.url) {
+      return imagePath.url;
+    }
+    
+    // If imagePath is an object with secure_url property (from Cloudinary)
+    if (typeof imagePath === 'object' && imagePath.secure_url) {
+      return imagePath.secure_url;
+    }
+    
+    // Convert to string to handle any non-string inputs
+    const path = String(imagePath);
+    
+    // If already a fully qualified URL, return as is
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      return path;
+    }
+    
+    // If it's just a filename (not a path), prepend the uploads directory
+    if (!path.startsWith('/')) {
+      return `${process.env.REACT_APP_UPLOAD_URL || 'http://localhost:5000/uploads'}/${path}`;
+    }
+    
+    // If it's an absolute path without domain
+    if (path.startsWith('/uploads/')) {
+      return `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}${path}`;
+    }
+    
+    // Fall back to API URL + path
+    return `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}${path}`;
+  };
 
   if (loading || isLoading) {
     return (
@@ -581,7 +744,14 @@ const SellerDashboard = () => {
                 <div className="recent-products">
                   {products.slice(0, 3).map(product => (
                     <div key={product._id} className="product-item">
-                      <img src={product.images?.[0] || "/placeholder.svg"} alt={product.title} />
+                      <img 
+                        src={getImageUrl(product.images?.[0])} 
+                        alt={product.title}
+                        onError={(e) => {
+                          e.target.onerror = null;
+                          e.target.src = "/placeholder.svg";
+                        }}
+                      />
                       <div className="product-info">
                         <div className="product-title">{product.title}</div>
                         <div className="product-price">{formatPrice(product.price)}</div>
@@ -614,7 +784,7 @@ const SellerDashboard = () => {
               <div className="products-table">
                 <div className="table-header">
                   <div className="col-image">Image</div>
-                  <div className="col-title">Product Name</div>
+                  <div className="col-title">Title</div>
                   <div className="col-price">Price</div>
                   <div className="col-stock">Stock</div>
                   <div className="col-category">Category</div>
@@ -624,7 +794,14 @@ const SellerDashboard = () => {
                 {products.map(product => (
                   <div key={product._id} className="table-row">
                     <div className="col-image">
-                      <img src={product.images?.[0] || "/placeholder.svg"} alt={product.title} />
+                      <img 
+                        src={getImageUrl(product.images?.[0])} 
+                        alt={product.title}
+                        onError={(e) => {
+                          e.target.onerror = null;
+                          e.target.src = "/placeholder.svg";
+                        }}
+                      />
                     </div>
                     <div className="col-title">{product.title}</div>
                     <div className="col-price">{formatPrice(product.price)}</div>
@@ -868,7 +1045,10 @@ const SellerDashboard = () => {
                     <div className="image-previews">
                       {previewImages.map((src, index) => (
                         <div key={index} className="image-preview-item">
-                          <img src={src} alt={`Preview ${index + 1}`} />
+                          <img 
+                            src={typeof src === 'string' ? src : src.url} 
+                            alt={`Preview ${index + 1}`} 
+                          />
                           <button
                             type="button"
                             className="remove-image-btn"

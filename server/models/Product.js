@@ -31,7 +31,14 @@ const productSchema = new mongoose.Schema({
   },
   images: [
     {
-      type: String
+      url: {
+        type: String,
+        required: true
+      },
+      public_id: {
+        type: String,
+        required: true
+      }
     }
   ],
   colors: [
@@ -90,17 +97,21 @@ const productSchema = new mongoose.Schema({
     default: false
   },
   specifications: {
-    type: Map,
-    of: String
+    type: Object,
+    default: {}
   },
   arModels: {
     ios: {
-      type: String,
-      default: ''
+      url: String,
+      public_id: String
     },
     android: {
-      type: String,
-      default: ''
+      url: String,
+      public_id: String
+    },
+    web: {
+      url: String,
+      public_id: String
     }
   },
   createdAt: {
@@ -113,7 +124,8 @@ const productSchema = new mongoose.Schema({
   }
 }, { 
   toJSON: { virtuals: true },
-  toObject: { virtuals: true } 
+  toObject: { virtuals: true },
+  timestamps: true
 });
 
 // Update the updatedAt field on save

@@ -1,5 +1,6 @@
 const Product = require('../models/Product');
 const mongoose = require('mongoose');
+const { uploadToCloudinary, deleteFromCloudinary } = require('../middleware/cloudinaryMiddleware');
 
 // @desc    Get all products
 // @route   GET /api/products
@@ -100,7 +101,9 @@ const getProductById = async (req, res) => {
 // @access  Private/Seller
 const createProduct = async (req, res) => {
   try {
-    const {
+    console.log('Create product request body:', req.body);
+    
+    let {
       title,
       description,
       price,
@@ -110,11 +113,149 @@ const createProduct = async (req, res) => {
       brand,
       specifications,
       arModels,
-      colors
+      colors,
+      imagesCount
     } = req.body;
 
-    // Get image paths from file upload
-    const images = req.files ? req.files.map(file => file.path) : [];
+    // Parse JSON strings if needed - this handles FormData's string conversion
+    try {
+      // Handle arModels with explicit structure validation
+      if (arModels && typeof arModels === 'string') {
+        try {
+          arModels = JSON.parse(arModels);
+          console.log('Parsed arModels:', arModels);
+          
+          // Validate structure
+          if (!arModels.ios) arModels.ios = {};
+          if (!arModels.android) arModels.android = {};
+          
+          // Ensure ios has url and public_id as objects
+          if (typeof arModels.ios === 'string') {
+            const url = arModels.ios;
+            arModels.ios = {
+              url: url,
+              public_id: url.split('/').pop() || ''
+            };
+          }
+          
+          // Ensure android has url and public_id as objects
+          if (typeof arModels.android === 'string') {
+            const url = arModels.android;
+            arModels.android = {
+              url: url,
+              public_id: url.split('/').pop() || ''
+            };
+          }
+          
+          console.log('Structured arModels:', arModels);
+        } catch (e) {
+          console.error('Failed to parse arModels string:', e);
+          arModels = { ios: {}, android: {} };
+        }
+      } else if (!arModels) {
+        arModels = { ios: {}, android: {} };
+      }
+      
+      if (colors && typeof colors === 'string') {
+        colors = JSON.parse(colors);
+        console.log('Parsed colors:', colors);
+      }
+      
+      // NEW APPROACH: Process images from indexed FormData fields
+      // First, check if we have an imagesCount field which indicates the new approach
+      let images = [];
+      if (imagesCount !== undefined) {
+        const count = parseInt(imagesCount);
+        console.log(`Using new approach with ${count} images`);
+        
+        // Build images array from indexed fields
+        for (let i = 0; i < count; i++) {
+          const url = req.body[`images[${i}][url]`];
+          const public_id = req.body[`images[${i}][public_id]`];
+          
+          if (url && public_id) {
+            images.push({ url, public_id });
+          } else {
+            console.warn(`Missing url or public_id for image at index ${i}`);
+          }
+        }
+        
+        console.log('Constructed images array from indexed fields:', images);
+      } else {
+        // FALLBACK: Try the old approach if imagesCount is not provided
+        const images_str = req.body.images;
+        if (images_str && typeof images_str === 'string') {
+          try {
+            images = JSON.parse(images_str);
+            console.log('Parsed images from JSON string:', images);
+            
+            // Validate that images is an array
+            if (!Array.isArray(images)) {
+              console.error('Parsed images is not an array, forcing to empty array');
+              images = [];
+            }
+          } catch (e) {
+            console.error('Failed to parse images string:', e);
+            images = [];
+          }
+        }
+        
+        // If still no images, check for separate image fields
+        if (!images || !Array.isArray(images) || images.length === 0) {
+          // Check if images are submitted as separate fields (from FormData)
+          const imageKeys = Object.keys(req.body).filter(key => key.startsWith('images[') && key.endsWith(']'));
+          
+          if (imageKeys.length > 0) {
+            console.log('Found image keys in FormData:', imageKeys);
+            
+            // Sort keys to ensure order is maintained
+            imageKeys.sort((a, b) => {
+              const aIndex = parseInt(a.match(/\[(\d+)\]/)[1]);
+              const bIndex = parseInt(b.match(/\[(\d+)\]/)[1]);
+              return aIndex - bIndex;
+            });
+            
+            // Parse each image
+            images = imageKeys.map(key => {
+              try {
+                const imgData = JSON.parse(req.body[key]);
+                console.log(`Parsed image data for ${key}:`, imgData);
+                return imgData;
+              } catch (e) {
+                console.error(`Failed to parse image data for ${key}:`, e);
+                return null;
+              }
+            }).filter(img => img !== null);
+            
+            console.log('Parsed images from FormData fields:', images);
+          }
+        }
+      }
+    } catch (parseError) {
+      console.error('Error parsing JSON data:', parseError);
+      return res.status(400).json({ message: 'Invalid data format', error: parseError.message });
+    }
+
+    // Log the processed images
+    console.log('Final processed images array:', images);
+    console.log('Final processed arModels:', arModels);
+    
+    // Validate images array structure
+    if (!Array.isArray(images)) {
+      console.error('Images is not an array:', typeof images, images);
+      return res.status(400).json({ message: 'Images must be an array' });
+    }
+
+    // Ensure each image has url and public_id - with detailed logging
+    const invalidImages = images.filter(img => !img || !img.url || !img.public_id);
+    if (invalidImages.length > 0) {
+      console.error('Invalid images found:', invalidImages);
+      console.error('All images array:', images);
+      return res.status(400).json({ 
+        message: 'Each image must have url and public_id',
+        invalidImages
+      });
+    }
 
     const product = new Product({
       title,
@@ -122,13 +263,21 @@ const createProduct = async (req, res) => {
       price: Number(price),
       originalPrice: originalPrice ? Number(originalPrice) : undefined,
       stock: Number(stock),
-      images,
+      images: images,
       category,
       brand,
       seller: req.user._id,
       specifications: specifications ? (typeof specifications === 'string' ? JSON.parse(specifications) : specifications) : {},
-      arModels: arModels ? (typeof arModels === 'string' ? JSON.parse(arModels) : arModels) : {},
-      colors: colors ? (typeof colors === 'string' ? JSON.parse(colors) : colors) : []
+      arModels: arModels,
+      colors: colors || []
+    });
+
+    console.log('Creating product with data:', {
+      title,
+      price,
+      images: images.length,
+      arModels: JSON.stringify(arModels),
+      seller: req.user._id
     });
 
     const createdProduct = await product.save();
@@ -144,20 +293,8 @@ const createProduct = async (req, res) => {
 // @access  Private/Seller
 const updateProduct = async (req, res) => {
   try {
-    const {
-      title,
-      description,
-      price,
-      originalPrice,
-      stock,
-      category,
-      brand,
-      specifications,
-      arModels,
-      colors,
-      existingImages
-    } = req.body;
-
+    console.log('Update product request body:', req.body);
+    
     const product = await Product.findById(req.params.id);
 
     if (!product) {
@@ -169,59 +306,203 @@ const updateProduct = async (req, res) => {
       return res.status(403).json({ message: 'Not authorized to update this product' });
     }
 
+    let {
+      title,
+      description,
+      price,
+      originalPrice,
+      stock,
+      category,
+      brand,
+      specifications,
+      arModels,
+      colors,
+      imagesCount
+    } = req.body;
+
+    // Parse JSON strings if needed - this handles FormData's string conversion
+    try {
+      // Handle arModels with explicit structure validation
+      if (arModels && typeof arModels === 'string') {
+        try {
+          arModels = JSON.parse(arModels);
+          console.log('Parsed arModels:', arModels);
+          
+          // Validate structure
+          if (!arModels.ios) arModels.ios = {};
+          if (!arModels.android) arModels.android = {};
+          
+          // Ensure ios has url and public_id as objects
+          if (typeof arModels.ios === 'string') {
+            const url = arModels.ios;
+            arModels.ios = {
+              url: url,
+              public_id: url.split('/').pop() || ''
+            };
+          }
+          
+          // Ensure android has url and public_id as objects
+          if (typeof arModels.android === 'string') {
+            const url = arModels.android;
+            arModels.android = {
+              url: url,
+              public_id: url.split('/').pop() || ''
+            };
+          }
+          
+          console.log('Structured arModels:', arModels);
+        } catch (e) {
+          console.error('Failed to parse arModels string:', e);
+          arModels = product.arModels; // Keep existing arModels if parsing fails
+        }
+      } else if (!arModels) {
+        arModels = product.arModels; // Keep existing if not provided
+      }
+      
+      if (colors && typeof colors === 'string') {
+        colors = JSON.parse(colors);
+        console.log('Parsed colors:', colors);
+      }
+      
+      if (specifications && typeof specifications === 'string') {
+        specifications = JSON.parse(specifications);
+        console.log('Parsed specifications:', specifications);
+      }
+      
+      // NEW APPROACH: Process images from indexed FormData fields
+      // First, check if we have an imagesCount field which indicates the new approach
+      let images = [];
+      if (imagesCount !== undefined) {
+        const count = parseInt(imagesCount);
+        console.log(`Using new approach with ${count} images`);
+        
+        // Build images array from indexed fields
+        for (let i = 0; i < count; i++) {
+          const url = req.body[`images[${i}][url]`];
+          const public_id = req.body[`images[${i}][public_id]`];
+          
+          if (url && public_id) {
+            images.push({ url, public_id });
+          } else {
+            console.warn(`Missing url or public_id for image at index ${i}`);
+          }
+        }
+        
+        console.log('Constructed images array from indexed fields:', images);
+      } else {
+        // FALLBACK: Try the old approach if imagesCount is not provided
+        const images_str = req.body.images;
+        if (images_str && typeof images_str === 'string') {
+          try {
+            images = JSON.parse(images_str);
+            console.log('Parsed images from JSON string:', images);
+            
+            // Validate that images is an array
+            if (!Array.isArray(images)) {
+              console.error('Parsed images is not an array, keeping existing images');
+              images = product.images;
+            }
+          } catch (e) {
+            console.error('Failed to parse images string:', e);
+            images = product.images; // Keep existing images if parsing fails
+          }
+        } else if (!images_str) {
+          // Check if images are submitted as separate fields (from FormData)
+          const imageKeys = Object.keys(req.body).filter(key => key.startsWith('images[') && key.endsWith(']'));
+          
+          if (imageKeys.length > 0) {
+            console.log('Found image keys in FormData:', imageKeys);
+            
+            // Sort keys to ensure order is maintained
+            imageKeys.sort((a, b) => {
+              const aIndex = parseInt(a.match(/\[(\d+)\]/)[1]);
+              const bIndex = parseInt(b.match(/\[(\d+)\]/)[1]);
+              return aIndex - bIndex;
+            });
+            
+            // Parse each image
+            images = imageKeys.map(key => {
+              try {
+                const imgData = JSON.parse(req.body[key]);
+                console.log(`Parsed image data for ${key}:`, imgData);
+                return imgData;
+              } catch (e) {
+                console.error(`Failed to parse image data for ${key}:`, e);
+                return null;
+              }
+            }).filter(img => img !== null);
+            
+            console.log('Parsed images from FormData fields:', images);
+          } else {
+            // If no images provided in the update, keep existing images
+            images = product.images;
+            console.log('No new images provided, keeping existing images');
+          }
+        }
+      }
+    } catch (parseError) {
+      console.error('Error parsing JSON data:', parseError);
+      return res.status(400).json({ message: 'Invalid data format', error: parseError.message });
+    }
+
+    // Log the processed images and arModels
+    console.log('Final processed images array:', images);
+    console.log('Final processed arModels:', arModels);
+    
+    // Validate images array structure
+    if (images && !Array.isArray(images)) {
+      console.error('Images is not an array:', typeof images, images);
+      return res.status(400).json({ message: 'Images must be an array' });
+    }
+
+    // Ensure each image has url and public_id
+    if (images && images.length > 0) {
+      const invalidImages = images.filter(img => !img || !img.url || !img.public_id);
+      if (invalidImages.length > 0) {
+        console.error('Invalid images found:', invalidImages);
+        console.error('All images array:', images);
+        return res.status(400).json({ 
+          message: 'Each image must have url and public_id',
+          invalidImages
+        });
+      }
+    }
+
     // Update product fields
     product.title = title || product.title;
     product.description = description || product.description;
-    product.price = price !== undefined ? Number(price) : product.price;
-    product.originalPrice = originalPrice !== undefined ? Number(originalPrice) : product.originalPrice;
-    product.stock = stock !== undefined ? Number(stock) : product.stock;
+    product.price = price ? Number(price) : product.price;
+    product.originalPrice = originalPrice ? Number(originalPrice) : product.originalPrice;
+    product.stock = stock ? Number(stock) : product.stock;
     product.category = category || product.category;
     product.brand = brand || product.brand;
     
-    // Handle specifications
+    // Only update images if they are provided
+    if (images && images.length > 0) {
+      product.images = images;
+    }
+    
+    // Update specifications if provided
     if (specifications) {
-      product.specifications = typeof specifications === 'string' 
-        ? JSON.parse(specifications) 
-        : specifications;
+      product.specifications = specifications;
     }
     
-    // Handle AR models
+    // Update AR models if provided
     if (arModels) {
-      product.arModels = typeof arModels === 'string' 
-        ? JSON.parse(arModels) 
-        : arModels;
+      product.arModels = arModels;
     }
     
-    // Handle colors
+    // Update colors if provided
     if (colors) {
-      product.colors = typeof colors === 'string' 
-        ? JSON.parse(colors) 
-        : colors;
+      product.colors = colors;
     }
-    
-    // Handle images
-    let updatedImages = [...product.images];
-    
-    // Keep existing images if specified
-    if (existingImages) {
-      // If a single string is passed
-      if (typeof existingImages === 'string') {
-        updatedImages = [existingImages];
-      } 
-      // If an array of strings is passed
-      else if (Array.isArray(existingImages)) {
-        updatedImages = existingImages;
-      }
-    }
-    
-    // Add newly uploaded images
-    if (req.files && req.files.length > 0) {
-      const newImages = req.files.map(file => file.path);
-      updatedImages = [...updatedImages, ...newImages];
-    }
-    
-    // Update the product images
-    product.images = updatedImages;
+
+    console.log('Updating product with data:', {
+      title: product.title,
+      price: product.price,
+      images: product.images.length,
+      arModels: JSON.stringify(product.arModels)
+    });
 
     const updatedProduct = await product.save();
     res.json(updatedProduct);
@@ -247,10 +528,16 @@ const deleteProduct = async (req, res) => {
       return res.status(403).json({ message: 'Not authorized to delete this product' });
     }
 
-    await product.deleteOne();
+    // Delete images from Cloudinary
+    const deletePromises = product.images.map(image => 
+      deleteFromCloudinary(image.public_id)
+    );
+    await Promise.all(deletePromises);
+
+    await product.remove();
     res.json({ message: 'Product removed' });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(400).json({ message: error.message });
   }
 };
 
