@@ -7,11 +7,12 @@ import homepageSectionService from "../services/api/homepageSectionService"
 import productService from "../services/api/productService"
 import userService from "../services/api/userService"
 import categoryService from "../services/api/categoryService"
+import authService from "../services/api/authService"
 import "./AdminDashboard.css"
 import { FaPlus, FaEdit, FaTrash, FaUsers, FaBox, FaLayerGroup } from 'react-icons/fa'
 
 const AdminDashboard = () => {
-  const { user, isAuthenticated } = useAuth()
+  const { user, isAuthenticated, logout } = useAuth()
   const navigate = useNavigate()
   const [users, setUsers] = useState([])
   const [products, setProducts] = useState([])
@@ -34,10 +35,10 @@ const AdminDashboard = () => {
     slides: [
       {
         imageUrl: "",
-    title: "",
-    subtitle: "",
-    buttonText: "",
-    buttonLink: "",
+        title: "",
+        subtitle: "",
+        buttonText: "",
+        buttonLink: "",
       }
     ]
   })
@@ -66,17 +67,22 @@ const AdminDashboard = () => {
   const [selectedProducts, setSelectedProducts] = useState([])
 
   // Add state for all products
-  const [allProducts, setAllProducts] = useState([]);
+  const [allProducts, setAllProducts] = useState([])
 
-  const [categories, setCategories] = useState([]);
-  const [showCategoryForm, setShowCategoryForm] = useState(false);
+  const [categories, setCategories] = useState([])
+  const [showCategoryForm, setShowCategoryForm] = useState(false)
   const [categoryFormData, setCategoryFormData] = useState({
     id: null,
-    name: "",
-    description: "",
-    parent: "",
+    name: '',
+    description: '',
+    parent: '',
     image: null
-  });
+  })
+
+  const [sellers, setSellers] = useState([])
+  const [sellerApplications, setSellerApplications] = useState([])
+  const [selectedSeller, setSelectedSeller] = useState(null)
+  const [showSellerModal, setShowSellerModal] = useState(false)
 
   useEffect(() => {
     if (!isAuthenticated || user?.role !== 'admin') {
@@ -246,16 +252,38 @@ const AdminDashboard = () => {
         }
       }
 
-      // Fetch real users data
+      // Fetch users (only customers)
       try {
-        const usersData = await userService.getAllUsers();
+        const usersData = await userService.getUsersByRole('user');
         setUsers(usersData.users || []);
       } catch (error) {
         console.error('Error fetching users:', error);
         setUsers([]);
       }
 
-      // Fetch real products data
+      // Fetch sellers
+      try {
+        const sellersData = await userService.getUsersByRole('seller');
+        setSellers(sellersData.users || []);
+      } catch (error) {
+        console.error('Error fetching sellers:', error);
+        setSellers([]);
+      }
+
+      // Fetch sellers and seller applications
+      try {
+        const [sellersResponse, applicationsResponse] = await Promise.all([
+          authService.getSellers(),
+          authService.getSellerApplications()
+        ]);
+        
+        setSellerApplications(applicationsResponse.data || []);
+      } catch (error) {
+        console.error('Error fetching sellers or applications:', error);
+        setSellerApplications([]);
+      }
+
+      // Fetch products
       try {
         const productsData = await productService.getAllProducts();
         setProducts(productsData.products || []);
@@ -273,7 +301,7 @@ const AdminDashboard = () => {
         setCategories([]);
       }
 
-            setIsLoading(false)
+      setIsLoading(false)
     } catch (error) {
       console.error("Error fetching admin data:", error)
       setIsLoading(false)
@@ -299,10 +327,10 @@ const AdminDashboard = () => {
       slides: [
         {
           imageUrl: "",
-      title: "",
-      subtitle: "",
-      buttonText: "",
-      buttonLink: "",
+          title: "",
+          subtitle: "",
+          buttonText: "",
+          buttonLink: "",
         }
       ]
     })
@@ -329,30 +357,37 @@ const AdminDashboard = () => {
     console.log('Editing section:', {
       id: sectionId,
       title: section.title,
-      type: section.type
+      type: section.type,
+      content: section.content
     });
     
+    // Parse content if it's a string
+    let contentObj = section.content;
+    if (typeof section.content === 'string') {
+      try {
+        contentObj = JSON.parse(section.content);
+      } catch (error) {
+        console.error('Error parsing section content:', error);
+        contentObj = section.content;
+      }
+    }
+    
     setSectionFormData({
-      id: sectionId,  // Prefer MongoDB _id
+      id: sectionId,
       title: section.title,
       type: section.type,
-      content: typeof section.content === 'string' ? section.content : JSON.stringify(section.content),
+      content: contentObj,
       order: section.order,
       active: section.active,
     });
 
-    // Parse content for specific section types
-    let contentObj;
-    try {
-      contentObj = typeof section.content === 'string' ? JSON.parse(section.content) : section.content;
-    } catch (error) {
-      console.error("Error parsing section content:", error);
-      return;
-    }
-      
-      if (section.type === "banner") {
-      // Convert old format to new slides format if needed
-      if (!contentObj.slides && (contentObj.image || contentObj.title)) {
+    // Set specific data based on section type
+    if (section.type === "banner") {
+      // Handle banner data
+      if (contentObj.slides) {
+        setBannerData(contentObj);
+      } else {
+        // Convert old format to new slides format
         setBannerData({
           slides: [{
             imageUrl: contentObj.image || '',
@@ -362,20 +397,16 @@ const AdminDashboard = () => {
             buttonLink: contentObj.buttonLink || '',
           }]
         });
-      } else {
-        setBannerData(contentObj);
       }
-      } else if (section.type === "categories") {
+    } else if (section.type === "categories") {
       setCategoriesData(contentObj);
-      } else if (section.type === "products") {
+    } else if (section.type === "products") {
       setProductsData(contentObj);
-      // If we have product IDs, populate selectedProducts
+      // Set selected products
       if (contentObj.productIds && Array.isArray(contentObj.productIds)) {
         setSelectedProducts(contentObj.productIds);
-      } else {
-        setSelectedProducts([]);
       }
-      } else if (section.type === "icon-categories") {
+    } else if (section.type === "icon-categories") {
       setIconCategoriesData(contentObj);
     }
     
@@ -478,10 +509,10 @@ const AdminDashboard = () => {
           slides: [
             {
               imageUrl: "",
-          title: "",
-          subtitle: "",
-          buttonText: "",
-          buttonLink: "",
+              title: "",
+              subtitle: "",
+              buttonText: "",
+              buttonLink: "",
             }
           ]
         });
@@ -491,10 +522,10 @@ const AdminDashboard = () => {
             slides: [
               {
                 imageUrl: "",
-            title: "",
-            subtitle: "",
-            buttonText: "",
-            buttonLink: "",
+                title: "",
+                subtitle: "",
+                buttonText: "",
+                buttonLink: "",
               }
             ]
           })
@@ -636,7 +667,7 @@ const AdminDashboard = () => {
         };
       });
 
-      // Upload the file to the server
+      // Upload the file to Cloudinary
       console.log(`Starting upload for file: ${file.name} (${file.size} bytes)`);
       const uploadResponse = await homepageSectionService.uploadSectionImage(file, 'banner');
       
@@ -645,27 +676,13 @@ const AdminDashboard = () => {
       if (uploadResponse && uploadResponse.fileUrl) {
         console.log(`Banner image uploaded successfully to ${uploadResponse.fileUrl}`);
         
-        // Choose the best URL option available
-        let imageUrl = uploadResponse.fileUrl;
-        
-        // Log all available URLs for debugging
-        if (uploadResponse.allUrls) {
-          console.log('All available URLs:', uploadResponse.allUrls);
-        }
-        
-        // Show additional info about the file
-        if (uploadResponse.fullPath) {
-          console.log('File saved at:', uploadResponse.fullPath);
-        }
-        
-        console.log('Using image URL:', imageUrl);
-        
-        // Update the banner data with the new image URL
+        // Update the banner data with the Cloudinary URL
         setBannerData(prevData => {
           const newSlides = [...prevData.slides];
           newSlides[slideIndex] = {
             ...newSlides[slideIndex],
-            imageUrl: imageUrl
+            imageUrl: uploadResponse.fileUrl,
+            public_id: uploadResponse.public_id
           };
           
           const newData = {
@@ -679,21 +696,8 @@ const AdminDashboard = () => {
             content: JSON.stringify(newData)
           }));
           
-          console.log('Updated slide image at index', slideIndex, 'with URL:', imageUrl);
           return newData;
         });
-        
-        // Test image loading directly
-        try {
-          const testImg = new Image();
-          testImg.onload = () => console.log('Image verified to load successfully');
-          testImg.onerror = () => console.warn('Image failed to load during verification test');
-          testImg.src = imageUrl.startsWith('/') 
-            ? `${window.location.origin}${imageUrl}` 
-            : imageUrl;
-        } catch (imgTestError) {
-          console.warn('Image test failed:', imgTestError);
-        }
       } else {
         console.error('File upload failed - invalid response:', uploadResponse);
         alert('File upload failed. Please try again.');
@@ -771,19 +775,75 @@ const AdminDashboard = () => {
   
   // Handle category data changes
   const handleCategoryChange = (index, field, value) => {
-    const updatedCategories = [...categoriesData.categories]
+    const updatedCategories = [...categoriesData.categories];
+    if (field === 'image' && value instanceof File) {
+      // Handle file upload
+      const formData = new FormData();
+      formData.append('file', value);
+      
+      // Show loading state
+      updatedCategories[index] = {
+        ...updatedCategories[index],
+        image: 'Uploading...'
+      };
+      
+      // Update state to show loading
+      const updatedCategoriesData = { ...categoriesData, categories: updatedCategories };
+      setCategoriesData(updatedCategoriesData);
+      setSectionFormData(prev => ({
+        ...prev,
+        content: JSON.stringify(updatedCategoriesData)
+      }));
+      
+      // Upload the file
+      homepageSectionService.uploadSectionImage(value, 'categories')
+        .then(response => {
+          const updatedCategories = [...categoriesData.categories];
+          updatedCategories[index] = {
+            ...updatedCategories[index],
+            image: response.fileUrl
+          };
+          
+          const updatedCategoriesData = { ...categoriesData, categories: updatedCategories };
+          setCategoriesData(updatedCategoriesData);
+          setSectionFormData(prev => ({
+            ...prev,
+            content: JSON.stringify(updatedCategoriesData)
+          }));
+        })
+        .catch(error => {
+          console.error('Error uploading category image:', error);
+          alert('Failed to upload image. Please try again.');
+          
+          // Reset the image on error
+          const updatedCategories = [...categoriesData.categories];
+          updatedCategories[index] = {
+            ...updatedCategories[index],
+            image: ''
+          };
+          
+          const updatedCategoriesData = { ...categoriesData, categories: updatedCategories };
+          setCategoriesData(updatedCategoriesData);
+          setSectionFormData(prev => ({
+            ...prev,
+            content: JSON.stringify(updatedCategoriesData)
+          }));
+        });
+    } else {
+      // Handle other field changes
     updatedCategories[index] = {
       ...updatedCategories[index],
       [field]: value
-    }
+      };
     
-    const updatedCategoriesData = { ...categoriesData, categories: updatedCategories }
-    setCategoriesData(updatedCategoriesData)
+      const updatedCategoriesData = { ...categoriesData, categories: updatedCategories };
+      setCategoriesData(updatedCategoriesData);
     setSectionFormData(prev => ({
       ...prev,
       content: JSON.stringify(updatedCategoriesData)
-    }))
+      }));
   }
+  };
   
   // Add handleRemoveCategory function
   const handleRemoveCategory = (index) => {
@@ -798,88 +858,103 @@ const AdminDashboard = () => {
     }));
   };
   
+  // Load categories when component mounts
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        const response = await categoryService.getAllCategories();
+        setCategories(response.categories || []);
+      } catch (error) {
+        console.error('Error loading categories:', error);
+        alert('Failed to load categories');
+      }
+    };
+    loadCategories();
+  }, []);
+
   // Add new category
   const handleAddCategory = () => {
     setCategoryFormData({
       id: null,
-      name: "",
-      description: "",
-      parent: "",
+      name: '',
+      description: '',
+      parent: '',
       image: null
     });
     setShowCategoryForm(true);
-  };
-
-  const handleEditCategory = (category) => {
-    setCategoryFormData({
-      id: category._id,
-      name: category.name,
-      description: category.description || "",
-      parent: category.parent?._id || "",
-      image: null
-    });
-    setShowCategoryForm(true);
-  };
-
-  const handleDeleteCategory = async (categoryId) => {
-    if (window.confirm("Are you sure you want to delete this category? This action cannot be undone.")) {
-      try {
-        await categoryService.deleteCategory(categoryId);
-        setCategories(categories.filter(cat => cat._id !== categoryId));
-        alert("Category deleted successfully!");
-      } catch (error) {
-        console.error("Error deleting category:", error);
-        alert("Failed to delete category. Please try again.");
-      }
-    }
   };
 
   const handleCategoryFormSubmit = async (e) => {
     e.preventDefault();
     try {
+      if (!categoryFormData.name || !categoryFormData.description) {
+        alert('Name and description are required fields');
+        return;
+      }
+
+      // Create category data object
+      const formData = new FormData();
+      
+      // Add required fields
+      formData.append('name', categoryFormData.name);
+      formData.append('description', categoryFormData.description);
+      
+      // Add parent if it exists
+      if (categoryFormData.parent) {
+        formData.append('parent', categoryFormData.parent);
+      }
+      
+      // Add image if it exists
+      if (categoryFormData.image instanceof File) {
+        formData.append('image', categoryFormData.image);
+      }
+
       let response;
       if (categoryFormData.id) {
-        response = await categoryService.updateCategory(categoryFormData.id, categoryFormData);
+        // Update existing category
+        response = await categoryService.updateCategory(categoryFormData.id, formData);
+      } else {
+        // Create new category
+        response = await categoryService.createCategory(formData);
+      }
+
+      // Update categories list
+      if (categoryFormData.id) {
         setCategories(categories.map(cat => 
-          cat._id === categoryFormData.id ? response : cat
+          cat._id === categoryFormData.id ? response.data : cat
         ));
       } else {
-        response = await categoryService.createCategory(categoryFormData);
-        setCategories([...categories, response]);
+        setCategories([...categories, response.data]);
       }
+      
+      // Reset form and close modal
       setShowCategoryForm(false);
-      alert(categoryFormData.id ? "Category updated successfully!" : "Category created successfully!");
+      setCategoryFormData({
+        id: null,
+        name: '',
+        description: '',
+        parent: '',
+        image: null
+      });
+      
+      // Show success message
+      alert(categoryFormData.id ? 'Category updated successfully!' : 'Category created successfully!');
     } catch (error) {
-      console.error("Error saving category:", error);
-      alert("Failed to save category. Please try again.");
+      console.error('Error saving category:', error);
+      alert('Failed to save category: ' + (error.response?.data?.message || error.message));
     }
   };
 
-  const handleCategoryImageUpload = async (e) => {
+  const handleCategoryImageChange = (e) => {
     const file = e.target.files[0];
-    if (!file) return;
-    
-    try {
-      if (categoryFormData.id) {
-        // If editing existing category, upload image directly
-        const response = await categoryService.uploadCategoryImage(categoryFormData.id, file);
-        setCategoryFormData(prev => ({
-          ...prev,
-          image: response.imageUrl
-        }));
-      } else {
-        // If creating new category, just store the file
-        setCategoryFormData(prev => ({
-          ...prev,
-          image: file
-        }));
-      }
-    } catch (error) {
-      console.error("Error uploading category image:", error);
-      alert("Failed to upload image. Please try again.");
+    if (file) {
+      setCategoryFormData(prev => ({
+        ...prev,
+        image: file
+      }));
     }
   };
-  
+
   // Add function to handle product search
   const handleProductSearch = (e) => {
     setProductSearch(e.target.value);
@@ -1200,18 +1275,16 @@ const AdminDashboard = () => {
         categories: newCategories
       });
       
-      // Upload the image first
+      // Upload the image to Cloudinary
       const response = await homepageSectionService.uploadSectionImage(file, 'icon-categories');
       
       if (response && response.fileUrl) {
-        // Log successful upload
-        console.log(`Icon category image uploaded successfully to ${response.fileUrl}`);
-        
-        // Update the iconCategoriesData with the new image URL
+        // Update the iconCategoriesData with the Cloudinary URL
         const updatedCategories = [...iconCategoriesData.categories];
         updatedCategories[index] = {
           ...updatedCategories[index],
-          imageUrl: response.fileUrl
+          imageUrl: response.fileUrl,
+          public_id: response.public_id
         };
         
         setIconCategoriesData({
@@ -1226,26 +1299,44 @@ const AdminDashboard = () => {
           })
         }));
       } else {
-        throw new Error('No file URL received from server');
+        console.error('Failed to upload image:', response);
+        alert('Failed to upload image. Please try again.');
       }
     } catch (error) {
-      console.error('Error uploading icon category image:', error);
-      alert(`Failed to upload image: ${error.message || 'Unknown error'}`);
+      console.error('Error uploading category image:', error);
+      alert('Error uploading image: ' + (error.message || 'Unknown error'));
       
-      // Revert to empty or previous state
-      const revertedCategories = [...iconCategoriesData.categories];
-      revertedCategories[index] = {
-        ...revertedCategories[index],
-        imageUrl: revertedCategories[index].imageUrl === 'Uploading...' ? '' : revertedCategories[index].imageUrl
+      // Reset the image URL on error
+      const newCategories = [...iconCategoriesData.categories];
+      newCategories[index] = {
+        ...newCategories[index],
+        imageUrl: ''
       };
-      
       setIconCategoriesData({
-        categories: revertedCategories
+        categories: newCategories
       });
     }
   };
   
-  // Add new icon category
+  // Add function to remove an icon category
+  const handleRemoveIconCategory = (index) => {
+    const updatedCategories = [...iconCategoriesData.categories];
+    updatedCategories.splice(index, 1);
+    
+    setIconCategoriesData({
+      categories: updatedCategories
+    });
+    
+    // Update the section form data with the new content
+    setSectionFormData(prev => ({
+      ...prev,
+      content: JSON.stringify({
+        categories: updatedCategories
+      })
+    }));
+  };
+
+  // Add function to add a new icon category
   const handleAddIconCategory = () => {
     const newCategory = {
       name: '',
@@ -1253,9 +1344,8 @@ const AdminDashboard = () => {
       link: ''
     };
     
-    // Update the iconCategoriesData state
-    setIconCategoriesData(prevData => ({
-      categories: [...prevData.categories, newCategory]
+    setIconCategoriesData(prev => ({
+      categories: [...prev.categories, newCategory]
     }));
     
     // Update the section form data with the new content
@@ -1266,19 +1356,6 @@ const AdminDashboard = () => {
       })
     }));
   };
-  
-  // Remove icon category
-  const handleRemoveIconCategory = (index) => {
-    const updatedCategories = [...iconCategoriesData.categories]
-    updatedCategories.splice(index, 1)
-    
-    const updatedCategoriesData = { ...iconCategoriesData, categories: updatedCategories }
-    setIconCategoriesData(updatedCategoriesData)
-    setSectionFormData(prev => ({
-      ...prev,
-      content: JSON.stringify(updatedCategoriesData)
-    }))
-  }
 
   // Load all products when component mounts
   useEffect(() => {
@@ -1308,6 +1385,95 @@ const AdminDashboard = () => {
     loadAllProducts();
   }, []);
 
+  const handleApproveApplication = async (applicationId) => {
+    try {
+      await authService.approveSellerApplication(applicationId);
+      // Remove from applications list
+      setSellerApplications(sellerApplications.filter(app => app._id !== applicationId));
+      // Refresh sellers list
+      const sellersResponse = await authService.getSellers();
+      setSellers(sellersResponse.data || []);
+      alert('Seller application approved successfully!');
+    } catch (error) {
+      console.error('Error approving seller application:', error);
+      alert('Failed to approve seller application');
+    }
+  };
+
+  const handleRejectApplication = async (applicationId) => {
+    try {
+      await authService.rejectSellerApplication(applicationId);
+      setSellerApplications(sellerApplications.filter(app => app._id !== applicationId));
+      alert('Seller application rejected successfully!');
+    } catch (error) {
+      console.error('Error rejecting seller application:', error);
+      alert('Failed to reject seller application');
+    }
+  };
+
+  const handleVerifySeller = async (sellerId, isVerified) => {
+    try {
+      const response = await authService.updateSellerVerification(sellerId, isVerified);
+      // Update the sellers list with the updated seller
+      setSellers(sellers.map(seller => 
+        seller._id === sellerId ? response.seller : seller
+      ));
+      alert(`Seller ${isVerified ? 'verified' : 'unverified'} successfully!`);
+    } catch (error) {
+      console.error('Error updating seller verification:', error);
+      alert('Failed to update seller verification status');
+    }
+  };
+
+  const handleViewSellerDetails = (seller) => {
+    setSelectedSeller(seller);
+    setShowSellerModal(true);
+  };
+
+  const handleEditCategory = (category) => {
+    setCategoryFormData({
+      id: category._id,
+      name: category.name,
+      description: category.description,
+      parent: category.parent || '',
+      image: null
+    });
+    setShowCategoryForm(true);
+  };
+
+  const handleDeleteCategory = async (categoryId) => {
+    if (window.confirm('Are you sure you want to delete this category?')) {
+      try {
+        await categoryService.deleteCategory(categoryId);
+        setCategories(categories.filter(cat => cat._id !== categoryId));
+        alert('Category deleted successfully!');
+      } catch (error) {
+        console.error('Error deleting category:', error);
+        alert('Failed to delete category. Please try again.');
+      }
+    }
+  };
+
+  // Add handleLogout function
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
+
+  // Add function to toggle user status
+  const handleToggleUserStatus = async (userId, isActive) => {
+    try {
+      await userService.updateUserStatus(userId, isActive);
+      setUsers(users.map(user => 
+        user._id === userId ? { ...user, isActive } : user
+      ));
+      alert(`User ${isActive ? 'activated' : 'deactivated'} successfully!`);
+    } catch (error) {
+      console.error('Error updating user status:', error);
+      alert('Failed to update user status');
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="admin-dashboard loading">
@@ -1319,40 +1485,54 @@ const AdminDashboard = () => {
   }
 
   return (
-    <div className="admin-dashboard">
-      <div className="container">
-        <div className="dashboard-header">
-          <h1>Admin Dashboard</h1>
-          <p>Welcome back, {user?.username || "Admin"}</p>
+    <div className="admin-dashboard-layout">
+      {/* Left Navigation */}
+      <div className="admin-sidebar">
+        <div className="admin-sidebar-header">
+          <h2>Admin Panel</h2>
+          <p>Welcome, {user?.username || "Admin"}</p>
         </div>
-
-        <div className="dashboard-tabs">
+        
+        <nav className="admin-nav">
           <button
-            className={`tab-btn ${activeTab === "homepage" ? "active" : ""}`}
+            className={`nav-btn ${activeTab === "homepage" ? "active" : ""}`}
             onClick={() => handleTabChange("homepage")}
           >
             Homepage Editor
           </button>
           <button
-            className={`tab-btn ${activeTab === "categories" ? "active" : ""}`}
+            className={`nav-btn ${activeTab === "categories" ? "active" : ""}`}
             onClick={() => handleTabChange("categories")}
           >
             <FaLayerGroup /> Categories
           </button>
           <button
-            className={`tab-btn ${activeTab === "users" ? "active" : ""}`}
+            className={`nav-btn ${activeTab === "users" ? "active" : ""}`}
             onClick={() => handleTabChange("users")}
           >
             <FaUsers /> Users
           </button>
           <button
-            className={`tab-btn ${activeTab === "products" ? "active" : ""}`}
+            className={`nav-btn ${activeTab === "products" ? "active" : ""}`}
             onClick={() => handleTabChange("products")}
           >
             <FaBox /> Products
           </button>
-        </div>
+          <button
+            className={`nav-btn ${activeTab === "sellers" ? "active" : ""}`}
+            onClick={() => handleTabChange("sellers")}
+          >
+            <FaUsers /> Sellers
+          </button>
+        </nav>
 
+        <button className="logout-btn" onClick={handleLogout}>
+          Logout
+        </button>
+      </div>
+
+      {/* Main Content */}
+      <div className="admin-main-content">
         <div className="tab-content">
           {activeTab === "homepage" && (
             <div className="homepage-tab">
@@ -1554,90 +1734,161 @@ const AdminDashboard = () => {
           {activeTab === "categories" && (
             <div className="categories-tab">
               <div className="tab-header">
-                <h2>Category Management</h2>
-                <button className="add-btn" onClick={() => {/* TODO: Add category handler */}}>
+                <h2>Categories Management</h2>
+                <button className="add-btn" onClick={handleAddCategory}>
                   <FaPlus /> Add Category
                 </button>
               </div>
 
-              <div className="categories-table">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>Name</th>
-                      <th>Parent Category</th>
-                      <th>Products</th>
-                      <th>Created</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {categoriesData.categories.map((category) => (
-                      <tr key={category._id}>
-                        <td>{category._id}</td>
-                        <td>{category.name}</td>
-                        <td>{category.parent ? category.parent.name : '-'}</td>
-                        <td>{category.productCount || 0}</td>
-                        <td>{formatDate(category.createdAt)}</td>
-                        <td>
-                          <div className="action-buttons">
-                            <button className="edit-btn">
-                              <FaEdit /> Edit
-                            </button>
-                            <button className="delete-btn">
-                              <FaTrash /> Delete
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="categories-list">
+                {(categories || []).map((category) => (
+                  <div key={category._id} className="category-item">
+                    <div className="category-info">
+                      {category.image?.url && (
+                        <img src={category.image.url} alt={category.name} className="category-image" />
+                      )}
+                      <div className="category-details">
+                        <h3>{category.name}</h3>
+                        <p>{category.description}</p>
+                        {category.parent && (
+                          <p className="parent-category">
+                            Parent: {categories.find(c => c._id === category.parent)?.name}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="category-actions">
+                      <button onClick={() => handleEditCategory(category)} className="edit-btn">
+                        <FaEdit /> Edit
+                      </button>
+                      <button onClick={() => handleDeleteCategory(category._id)} className="delete-btn">
+                        <FaTrash /> Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
+
+              {showCategoryForm && (
+                <div className="modal">
+                  <div className="modal-content">
+                    <div className="modal-header">
+                      <h2>{categoryFormData.id ? 'Edit Category' : 'Add New Category'}</h2>
+                      <button className="close-btn" onClick={() => setShowCategoryForm(false)}>×</button>
+                    </div>
+                    <form onSubmit={handleCategoryFormSubmit}>
+                      <div className="form-group">
+                        <label>Name*</label>
+                        <input
+                          type="text"
+                          value={categoryFormData.name}
+                          onChange={(e) => setCategoryFormData(prev => ({
+                            ...prev,
+                            name: e.target.value
+                          }))}
+                          required
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label>Description *</label>
+                        <textarea
+                          value={categoryFormData.description}
+                          onChange={(e) => setCategoryFormData(prev => ({
+                            ...prev,
+                            description: e.target.value
+                          }))}
+                          placeholder="Enter category description"
+                          required
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label>Parent Category (Optional)</label>
+                        <select
+                          value={categoryFormData.parent}
+                          onChange={(e) => setCategoryFormData(prev => ({
+                            ...prev,
+                            parent: e.target.value
+                          }))}
+                        >
+                          <option value="">None (Top Level)</option>
+                          {categories
+                            .filter(cat => cat._id !== categoryFormData.id)
+                            .map(cat => (
+                              <option key={cat._id} value={cat._id}>
+                                {cat.name}
+                              </option>
+                            ))
+                          }
+                        </select>
+                      </div>
+
+                      <div className="form-group">
+                        <label>Category Image (Optional)</label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleCategoryImageChange}
+                        />
+                        <small className="help-text">Upload an image for the category (optional)</small>
+                      </div>
+
+                      <div className="form-actions">
+                        <button type="button" onClick={() => setShowCategoryForm(false)}>
+                          Cancel
+                        </button>
+                        <button type="submit">
+                          {categoryFormData.id ? 'Update Category' : 'Create Category'}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
           {activeTab === "users" && (
             <div className="users-tab">
-              <h2>User Management</h2>
+              <div className="tab-header">
+                <h2>Customer Management</h2>
+              </div>
 
-              <div className="users-table">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>Username</th>
-                      <th>Email</th>
-                      <th>Role</th>
-                      <th>Joined</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {users.map((user) => (
-                      <tr key={user._id}>
-                        <td>{user._id}</td>
-                        <td>{user.username}</td>
-                        <td>{user.email}</td>
-                        <td>
-                          <span className={`role-badge ${user.role}`}>{user.role}</span>
-                        </td>
-                        <td>{formatDate(user.createdAt)}</td>
-                        <td>
-                          <div className="action-buttons">
-                            <button className="edit-btn">
-                              <FaEdit /> Edit
-                            </button>
-                            <button className="delete-btn">
-                              <FaTrash /> Delete
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="section-container">
+                <h3>Registered Customers</h3>
+                <div className="users-list">
+                  {users.map(user => (
+                    <div key={user._id} className="user-item">
+                      <div className="user-info">
+                        <h4>{user.username}</h4>
+                        <p><strong>Email:</strong> {user.email}</p>
+                        <p><strong>Joined:</strong> {new Date(user.createdAt).toLocaleDateString()}</p>
+                        <p><strong>Status:</strong> {user.isActive ? 'Active' : 'Inactive'}</p>
+                      </div>
+                      <div className="user-actions">
+                        {user.isActive ? (
+                          <button 
+                            className="deactivate-btn"
+                            onClick={() => handleToggleUserStatus(user._id, false)}
+                          >
+                            Deactivate
+                          </button>
+                        ) : (
+                          <button 
+                            className="activate-btn"
+                            onClick={() => handleToggleUserStatus(user._id, true)}
+                          >
+                            Activate
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {users.length === 0 && (
+                    <p className="no-data">No registered customers found</p>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -1660,7 +1911,7 @@ const AdminDashboard = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {products.map((product) => (
+                    {(products || []).map((product) => (
                       <tr key={product._id}>
                         <td>{product._id}</td>
                         <td>{product.title}</td>
@@ -1685,578 +1936,119 @@ const AdminDashboard = () => {
               </div>
             </div>
           )}
+
+          {activeTab === "sellers" && (
+            <div className="sellers-tab">
+              <div className="tab-header">
+                <h2>Seller Management</h2>
+              </div>
+
+              <div className="section-container">
+                <h3>Pending Seller Applications</h3>
+                <div className="applications-list">
+                  {sellerApplications.map(application => (
+                    <div key={application._id} className="application-item">
+                      <div className="application-info">
+                        <h4>{application.storeName}</h4>
+                        <p><strong>Applicant:</strong> {application.user.username}</p>
+                        <p><strong>Email:</strong> {application.user.email}</p>
+                        <p><strong>Phone:</strong> {application.phoneNumber}</p>
+                        <p><strong>Submitted:</strong> {new Date(application.createdAt).toLocaleDateString()}</p>
+                        <p><strong>Business Description:</strong> {application.storeDescription}</p>
+                        <p><strong>Address:</strong> {application.address.street}, {application.address.city}, {application.address.country}</p>
+                      </div>
+                      <div className="application-documents">
+                        <h5>Verification Documents</h5>
+                        <div className="document-list">
+                          {application.documents.map((doc, index) => (
+                            <a 
+                              key={index} 
+                              href={doc} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              className="document-link"
+                            >
+                              Document {index + 1}
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="application-actions">
+                        <button 
+                          className="approve-btn"
+                          onClick={() => handleApproveApplication(application._id)}
+                        >
+                          Approve
+                        </button>
+                        <button 
+                          className="reject-btn"
+                          onClick={() => handleRejectApplication(application._id)}
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {sellerApplications.length === 0 && (
+                    <p className="no-data">No pending seller applications</p>
+                  )}
+                </div>
+
+                <h3>Verified Sellers</h3>
+                <div className="sellers-list">
+                  {sellers.filter(seller => seller?.sellerProfile?.isVerified).map(seller => (
+                    <div key={seller._id} className="seller-item">
+                      <div className="seller-info">
+                        <h4>{seller.sellerProfile.storeName}</h4>
+                        <p><strong>Username:</strong> {seller.username}</p>
+                        <p><strong>Email:</strong> {seller.email}</p>
+                        <p><strong>Total Sales:</strong> {seller.sellerProfile.totalSales || 0}</p>
+                        <p><strong>Rating:</strong> {seller.sellerProfile.rating || 'No ratings yet'}</p>
+                      </div>
+                      <div className="seller-actions">
+                        <button 
+                          className="unverify-btn"
+                          onClick={() => handleVerifySeller(seller._id, false)}
+                        >
+                          Unverify Seller
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {sellers.filter(seller => seller?.sellerProfile?.isVerified).length === 0 && (
+                    <p className="no-data">No verified sellers found</p>
+                  )}
+                </div>
+
+                <h3>Unverified Sellers</h3>
+                <div className="sellers-list">
+                  {sellers.filter(seller => !seller?.sellerProfile?.isVerified).map(seller => (
+                    <div key={seller._id} className="seller-item">
+                      <div className="seller-info">
+                        <h4>{seller.sellerProfile.storeName}</h4>
+                        <p><strong>Username:</strong> {seller.username}</p>
+                        <p><strong>Email:</strong> {seller.email}</p>
+                        <p><strong>Joined:</strong> {new Date(seller.createdAt).toLocaleDateString()}</p>
+                      </div>
+                      <div className="seller-actions">
+                        <button 
+                          className="verify-btn"
+                          onClick={() => handleVerifySeller(seller._id, true)}
+                        >
+                          Verify Seller
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {sellers.filter(seller => !seller?.sellerProfile?.isVerified).length === 0 && (
+                    <p className="no-data">No unverified sellers found</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
-
-      {showSectionForm && (
-        <div className="section-form-modal">
-          <div className="section-form-content">
-            <button className="close-form-btn" onClick={() => setShowSectionForm(false)}>
-              ×
-            </button>
-
-            <h2>{sectionFormData.id ? "Edit Section" : "Add New Section"}</h2>
-
-            <form onSubmit={handleSectionFormSubmit}>
-              <div className="form-group">
-                <label>Section Title*</label>
-                <input
-                  type="text"
-                  name="title"
-                  value={sectionFormData.title}
-                  onChange={handleSectionFormChange}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label>Section Type*</label>
-                <select name="type" value={sectionFormData.type} onChange={handleSectionFormChange} required>
-                  <option value="banner">Banner</option>
-                  <option value="categories">Categories</option>
-                  <option value="products">Products</option>
-                  <option value="icon-categories">Icon Categories</option>
-                  <option value="custom">Custom</option>
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label>Display Order</label>
-                <input
-                  type="number"
-                  name="order"
-                  value={sectionFormData.order}
-                  onChange={handleSectionFormChange}
-                  min="1"
-                />
-              </div>
-              
-              {/* Dynamic form fields based on section type */}
-              {sectionFormData.type === "banner" && (
-                <div className="section-type-form banner-form">
-                  <h3>Banner Settings</h3>
-                  
-                  {bannerData.slides.map((slide, slideIndex) => (
-                    <div key={slideIndex} className="banner-slide">
-                      <h4>Slide {slideIndex + 1}</h4>
-                      
-                      <div className="form-group">
-                        <label>Banner Image</label>
-                        {slide.imageUrl && slide.imageUrl !== 'Uploading...' ? (
-                          <div className="image-preview">
-                            <img 
-                              src={slide.imageUrl} 
-                              alt="Banner Preview" 
-                              onError={(e) => {
-                                // Only apply error handling once to prevent loops
-                                if (e.target.dataset.errorHandled !== 'true') {
-                                  console.error('Error loading image:', slide.imageUrl);
-                                  e.target.src = '/placeholder-image.png';
-                                  e.target.dataset.errorHandled = 'true';
-                                  
-                                  // Add error message below image
-                                  const errorDiv = document.createElement('div');
-                                  errorDiv.className = 'image-load-error';
-                                  errorDiv.textContent = 'Image failed to load. Using placeholder.';
-                                  e.target.parentNode.appendChild(errorDiv);
-                                }
-                              }} 
-                            />
-                    </div>
-                        ) : slide.imageUrl === 'Uploading...' ? (
-                          <div className="image-preview uploading">
-                            <div className="upload-spinner"></div>
-                            <p>Uploading image...</p>
-                          </div>
-                        ) : null}
-                    <div className="image-upload-controls">
-                      <input
-                        type="text"
-                            value={slide.imageUrl || ''}
-                            onChange={(e) => handleBannerImageUrlChange(slideIndex, e.target.value)}
-                            placeholder="Paste Image URL here"
-                            className="image-url-input"
-                      />
-                          <div className="upload-or-text">OR</div>
-                          <div className="file-upload-wrapper">
-                            <label htmlFor={`banner-image-${slideIndex}`} className="file-upload-label">
-                              Choose File
-                            </label>
-                        <input
-                              id={`banner-image-${slideIndex}`}
-                          type="file"
-                              accept="image/*"
-                            onChange={(e) => handleBannerImageUpload(slideIndex, e)}
-                            className="file-input"
-                          />
-                            <span className="file-upload-help">Supported formats: JPG, PNG, GIF, WebP (max 5MB)</span>
-                          </div>
-                    </div>
-                  </div>
-                  
-                  <div className="form-group">
-                        <label>Title</label>
-                    <input
-                      type="text"
-                          value={slide.title}
-                          onChange={(e) => handleBannerChange(slideIndex, 'title', e.target.value)}
-                          placeholder="Banner title"
-                    />
-                  </div>
-                  
-                  <div className="form-group">
-                        <label>Subtitle</label>
-                    <input
-                      type="text"
-                          value={slide.subtitle}
-                          onChange={(e) => handleBannerChange(slideIndex, 'subtitle', e.target.value)}
-                          placeholder="Banner subtitle"
-                    />
-                  </div>
-                  
-                  <div className="form-group">
-                    <label>Button Text</label>
-                    <input
-                      type="text"
-                          value={slide.buttonText}
-                          onChange={(e) => handleBannerChange(slideIndex, 'buttonText', e.target.value)}
-                          placeholder="Call to action button text"
-                    />
-                  </div>
-                  
-                  <div className="form-group">
-                        <label>Button Link</label>
-                    <input
-                      type="text"
-                          value={slide.buttonLink}
-                          onChange={(e) => handleBannerChange(slideIndex, 'buttonLink', e.target.value)}
-                          placeholder="https://example.com or /products"
-                    />
-                  </div>
-                      
-                      {bannerData.slides.length > 1 && (
-                        <button 
-                          type="button" 
-                          className="remove-item-btn"
-                          onClick={() => handleRemoveBannerSlide(slideIndex)}
-                        >
-                          Remove Slide
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                  
-                  <button 
-                    type="button" 
-                    className="add-item-btn"
-                    onClick={handleAddBannerSlide}
-                  >
-                    Add Slide
-                  </button>
-                </div>
-              )}
-              
-              {sectionFormData.type === "categories" && (
-                <div className="categories-form">
-                  <h3>Categories Content</h3>
-                  
-                  <div className="categories-list">
-                    {categoriesData.categories.map((category, index) => (
-                      <div key={index} className="category-form-item">
-                        <h4>Category {index + 1}</h4>
-                        
-                        <div className="form-group image-upload-group">
-                          <label>Category Image*</label>
-                          <div className="image-preview-container">
-                            {category.image && (
-                              <img src={category.image} alt="Category preview" className="image-preview-small" />
-                            )}
-                          </div>
-                          <div className="image-upload-controls">
-                            <input
-                              type="text"
-                              value={category.image}
-                              onChange={(e) => handleCategoryChange(index, 'image', e.target.value)}
-                              placeholder="Image URL"
-                            />
-                            <div className="upload-btn-wrapper">
-                              <button 
-                                type="button" 
-                                className="upload-btn"
-                                onClick={() => categoryFileInputRefs.current[index]?.click()}
-                              >
-                                Upload Image
-                              </button>
-                              <input
-                                type="file"
-                                ref={el => categoryFileInputRefs.current[index] = el}
-                                onChange={(e) => handleCategoryImageUpload(index, e)}
-                                accept="image/*"
-                                style={{ display: 'none' }}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                        
-                        <div className="form-group">
-                          <label>Category Name*</label>
-                          <input
-                            type="text"
-                            value={category.name}
-                            onChange={(e) => handleCategoryChange(index, 'name', e.target.value)}
-                            required
-                          />
-                        </div>
-                        
-                        <div className="form-group">
-                          <label>Category Description</label>
-                          <input
-                            type="text"
-                            value={category.description}
-                            onChange={(e) => handleCategoryChange(index, 'description', e.target.value)}
-                          />
-                        </div>
-                        
-                        <button 
-                          type="button" 
-                          className="remove-btn"
-                          onClick={() => handleRemoveCategory(index)}
-                        >
-                          Remove Category
-                        </button>
-                      </div>
-                    ))}
-                    
-                    <button
-                      type="button"
-                      className="add-btn"
-                      onClick={handleAddCategory}
-                    >
-                      Add Category
-                    </button>
-                  </div>
-                </div>
-              )}
-              
-              {sectionFormData.type === "products" && (
-                <div className="section-type-form products-form">
-                  <h3>Featured Products</h3>
-                  
-                  <div className="form-group">
-                    <label>Search Products</label>
-                    <input
-                      type="text"
-                      value={productSearch}
-                      onChange={handleProductSearch}
-                      placeholder="Search for products..."
-                    />
-                    {isSearching && <div className="searching-indicator">Searching...</div>}
-                  </div>
-                  
-                  {searchResults.length > 0 && (
-                    <div className="search-results">
-                      <h4>Search Results</h4>
-                      <div className="product-search-list">
-                        {searchResults.map(product => (
-                          <div 
-                            key={product.id} 
-                            className={`product-search-item ${selectedProducts.includes(product.id) ? 'selected' : ''}`}
-                            onClick={() => handleProductSelection(product.id)}
-                          >
-                            <div className="product-search-image">
-                              <img 
-                                src={product.image} 
-                                alt={product.name} 
-                                onError={(e) => {
-                                  e.target.onerror = null; 
-                                  e.target.src = '/placeholder-image.png';
-                                }}
-                              />
-                            </div>
-                            <div className="product-search-info">
-                              <div className="product-search-name">{product.name}</div>
-                              <div className="product-search-price">Rs. {product.price.toLocaleString()}</div>
-                              {product.soldCount > 0 && (
-                                <div className="product-search-sold">
-                                  <span className="sold-badge">{product.soldCount} sold</span>
-                                </div>
-                              )}
-                            </div>
-                            <div className="product-search-checkbox">
-                              <input 
-                                type="checkbox" 
-                                checked={selectedProducts.includes(product.id)}
-                                onChange={() => {}}
-                              />
-                            </div>
-                          </div>
-                        ))}
-                  </div>
-                    </div>
-                  )}
-                  
-                  {selectedProducts.length > 0 && (
-                  <div className="selected-products">
-                      <h4>Selected Products ({selectedProducts.length})</h4>
-                      <div className="product-search-list">
-                        {selectedProducts.map(productId => {
-                          // Find the product details from searchResults if available
-                          const productDetails = searchResults.find(p => p.id === productId);
-                          
-                          return (
-                          <div 
-                            key={productId} 
-                            className="product-search-item selected"
-                            onClick={() => handleProductSelection(productId)}
-                          >
-                            <div className="product-search-image">
-                                {productDetails ? (
-                                  <img 
-                                    src={productDetails.image} 
-                                    alt={productDetails.name} 
-                                    onError={(e) => {
-                                      e.target.onerror = null;
-                                      e.target.src = '/placeholder-image.png';
-                                    }}
-                                  />
-                                ) : (
-                                  <img src={`/placeholder-image.png`} alt={`Product ${productId}`} />
-                                )}
-                  </div>
-                            <div className="product-search-info">
-                                {productDetails ? (
-                                  <>
-                                    <div className="product-search-name">{productDetails.name}</div>
-                                    <div className="product-search-price">Rs. {productDetails.price.toLocaleString()}</div>
-                                  </>
-                                ) : (
-                              <div className="product-search-name">Product ID: {productId}</div>
-                                )}
-                                <div className="product-status-tag">Selected</div>
-                            </div>
-                            <div className="product-search-checkbox">
-                              <input 
-                                type="checkbox" 
-                                checked={true}
-                                onChange={() => {}}
-                              />
-                            </div>
-                          </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-              
-              {sectionFormData.type === "icon-categories" && (
-                <div className="section-type-form icon-categories-form">
-                  <h3>Category Icons</h3>
-                  
-                    {iconCategoriesData.categories.map((category, index) => (
-                    <div key={index} className="icon-category-item">
-                        <div className="form-group">
-                        <label>Category Name</label>
-                          <input
-                            type="text"
-                          value={category.name || ''}
-                            onChange={(e) => handleIconCategoryChange(index, 'name', e.target.value)}
-                          placeholder="Category name"
-                          />
-                        </div>
-                        
-                        <div className="form-group image-upload-group">
-                          <label>Category Image*</label>
-                          <div className="image-preview-container">
-                            {category.imageUrl && (
-                              <img src={category.imageUrl} alt={category.name} className="image-preview-small" />
-                            )}
-                          </div>
-                          <div className="image-upload-controls">
-                            <input
-                              type="text"
-                              value={category.imageUrl || ''}
-                              onChange={(e) => handleIconCategoryChange(index, 'imageUrl', e.target.value)}
-                              placeholder="Image URL"
-                            />
-                            <div className="upload-btn-wrapper">
-                              <button 
-                                type="button" 
-                                className="upload-btn"
-                                onClick={() => document.getElementById(`icon-category-image-${index}`).click()}
-                              >
-                                Upload Image
-                              </button>
-                              <input
-                                type="file"
-                                id={`icon-category-image-${index}`}
-                                onChange={(e) => handleIconCategoryImageUpload(e, index)}
-                                accept="image/*"
-                                style={{ display: 'none' }}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                        
-                        <div className="form-group">
-                        <label>Link</label>
-                          <input
-                            type="text"
-                          value={category.link || ''}
-                            onChange={(e) => handleIconCategoryChange(index, 'link', e.target.value)}
-                          placeholder="Category link (e.g., /category/shoes)"
-                          />
-                        </div>
-                        
-                        <button 
-                          type="button" 
-                        className="remove-item-btn"
-                          onClick={() => handleRemoveIconCategory(index)}
-                        >
-                        Remove
-                        </button>
-                      </div>
-                    ))}
-                    
-                    <button
-                      type="button"
-                    className="add-item-btn"
-                      onClick={handleAddIconCategory}
-                    >
-                    Add Category
-                    </button>
-                </div>
-              )}
-              
-              {sectionFormData.type === "custom" && (
-                <div className="form-group">
-                  <label>Content (JSON)</label>
-                  <textarea
-                    name="content"
-                    value={sectionFormData.content}
-                    onChange={handleSectionFormChange}
-                    rows="6"
-                    placeholder={`Enter custom JSON content`}
-                  ></textarea>
-                  <p className="help-text">Enter content in JSON format for custom section</p>
-                </div>
-              )}
-
-              <div className="form-group checkbox-group">
-                <label>
-                  <input
-                    type="checkbox"
-                    name="active"
-                    checked={sectionFormData.active}
-                    onChange={handleSectionFormChange}
-                  />
-                  Active
-                </label>
-              </div>
-
-              <div className="form-actions">
-                <button type="button" className="cancel-btn" onClick={() => setShowSectionForm(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="save-btn">
-                  {sectionFormData.id ? "Update Section" : "Add Section"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Category Form Modal */}
-      {showCategoryForm && (
-        <div className="section-form-modal">
-          <div className="section-form-content">
-            <button className="close-form-btn" onClick={() => setShowCategoryForm(false)}>
-              ×
-            </button>
-
-            <h2>{categoryFormData.id ? "Edit Category" : "Add New Category"}</h2>
-
-            <form onSubmit={handleCategoryFormSubmit}>
-              <div className="form-group">
-                <label>Category Name*</label>
-                <input
-                  type="text"
-                  name="name"
-                  value={categoryFormData.name}
-                  onChange={(e) => setCategoryFormData(prev => ({
-                    ...prev,
-                    name: e.target.value
-                  }))}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label>Description</label>
-                <textarea
-                  name="description"
-                  value={categoryFormData.description}
-                  onChange={(e) => setCategoryFormData(prev => ({
-                    ...prev,
-                    description: e.target.value
-                  }))}
-                  rows="3"
-                />
-              </div>
-
-              <div className="form-group">
-                <label>Parent Category</label>
-                <select
-                  name="parent"
-                  value={categoryFormData.parent}
-                  onChange={(e) => setCategoryFormData(prev => ({
-                    ...prev,
-                    parent: e.target.value
-                  }))}
-                >
-                  <option value="">None (Top Level)</option>
-                  {categories.map(cat => (
-                    <option key={cat._id} value={cat._id}>
-                      {cat.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label>Category Image</label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleCategoryImageUpload}
-                />
-                {categoryFormData.image && (
-                  <div className="image-preview">
-                    <img 
-                      src={typeof categoryFormData.image === 'string' 
-                        ? categoryFormData.image 
-                        : URL.createObjectURL(categoryFormData.image)
-                      } 
-                      alt="Category preview" 
-                    />
-                  </div>
-                )}
-              </div>
-
-              <div className="form-actions">
-                <button type="button" className="cancel-btn" onClick={() => setShowCategoryForm(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="save-btn">
-                  {categoryFormData.id ? "Update Category" : "Add Category"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

@@ -28,11 +28,13 @@
   left: 0;
   width: 100%;
   height: 100%;
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: rgba(0, 0, 0, 0.5); /* dimmed overlay */
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 1000;  
+  padding: 1rem;
+  box-sizing: border-box;
 }
 
 .qr-content {

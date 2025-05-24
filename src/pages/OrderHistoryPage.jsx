@@ -1,71 +1,107 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import './OrderHistoryPage.css';
 
 const OrderHistoryPage = () => {
-  const { user } = useAuth();
-  const navigate = useNavigate();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
-  
+  const { user } = useAuth();
+  const [cancellationReason, setCancellationReason] = useState('');
+  const [selectedOrderForCancellation, setSelectedOrderForCancellation] = useState(null);
+
   useEffect(() => {
-    // Check if user is logged in
-    if (!user) {
-      navigate('/login');
-      return;
-    }
-    
-    // Fetch order history
-    fetchOrders();
-  }, [user, navigate]);
-  
-  const fetchOrders = async () => {
-    setLoading(true);
+    loadOrders();
+  }, [user]);
+
+  const loadOrders = () => {
     try {
-      // In a real app, fetch orders from API
-      // Simulate API call
-      setTimeout(() => {
-        // Mock orders
-        const mockOrders = Array(5).fill().map((_, index) => ({
-          id: index + 1,
-          date: new Date(Date.now() - Math.random() * 10000000000).toISOString(),
-          status: ['Pending', 'Processing', 'Shipped', 'Delivered'][Math.floor(Math.random() * 4)],
-          total: Math.floor(Math.random() * 50000) + 10000, // Random total between 100 and 600 dollars (in cents)
-          items: Array(Math.floor(Math.random() * 3) + 1).fill().map((_, itemIndex) => ({
-            id: itemIndex + 1,
-            name: `Product ${itemIndex + 1}`,
-            price: Math.floor(Math.random() * 9000) + 1000,
-            quantity: Math.floor(Math.random() * 3) + 1,
-            image: '/placeholder.svg?height=80&width=80'
-          }))
-        }));
-        
-        setOrders(mockOrders);
-        setLoading(false);
-      }, 1000);
+      const allOrders = JSON.parse(localStorage.getItem('orders') || '[]');
+      const userOrders = allOrders.filter(order => order.userId === user._id);
+      const sortedOrders = userOrders.sort((a, b) => 
+        new Date(b.orderDate) - new Date(a.orderDate)
+      );
+      setOrders(sortedOrders);
     } catch (error) {
-      console.error('Error fetching orders:', error);
+      console.error('Error loading orders:', error);
+    } finally {
       setLoading(false);
     }
   };
-  
-  const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
+
+  const handleCancellationRequest = (orderId) => {
+    setSelectedOrderForCancellation(orderId);
+    setCancellationReason('');
   };
-  
+
+  const submitCancellationRequest = () => {
+    if (!cancellationReason.trim()) {
+      alert('Please provide a reason for cancellation');
+      return;
+    }
+
+    try {
+      // Update order in main orders storage
+      const allOrders = JSON.parse(localStorage.getItem('orders') || '[]');
+      const updatedOrders = allOrders.map(order => {
+        if (order.id === selectedOrderForCancellation) {
+          return {
+            ...order,
+            status: 'cancellation_requested',
+            cancellationReason,
+            cancellationRequestDate: new Date().toISOString()
+          };
+        }
+        return order;
+      });
+      localStorage.setItem('orders', JSON.stringify(updatedOrders));
+
+      // Update order in seller-specific storage
+      const order = orders.find(o => o.id === selectedOrderForCancellation);
+      if (order) {
+        const sellerOrders = JSON.parse(localStorage.getItem(`orders_${order.sellerId}`) || '[]');
+        const updatedSellerOrders = sellerOrders.map(o => {
+          if (o.id === selectedOrderForCancellation) {
+            return {
+              ...o,
+              status: 'cancellation_requested',
+              cancellationReason,
+              cancellationRequestDate: new Date().toISOString()
+            };
+          }
+          return o;
+        });
+        localStorage.setItem(`orders_${order.sellerId}`, JSON.stringify(updatedSellerOrders));
+      }
+
+      setSelectedOrderForCancellation(null);
+      setCancellationReason('');
+      loadOrders();
+      alert('Cancellation request submitted successfully');
+    } catch (error) {
+      console.error('Error submitting cancellation request:', error);
+      alert('Failed to submit cancellation request');
+    }
+  };
+
   const formatPrice = (price) => {
-    return new Intl.NumberFormat('en-IN', {
+    return new Intl.NumberFormat('en-NP', {
       style: 'currency',
-      currency: 'INR',
+      currency: 'NPR',
       minimumFractionDigits: 2
     }).format(price);
   };
-  
+
+  const getOrderStatus = (order) => {
+    if (order.status === 'cancellation_requested') {
+      return 'Cancellation Requested';
+    }
+    if (order.paymentStatus === 'paid') {
+      return 'Paid';
+    }
+    return order.paymentMethod === 'cod' ? 'Cash on Delivery' : 'Payment Pending';
+  };
+
   if (loading) {
     return (
       <div className="order-history-page loading">
@@ -75,7 +111,7 @@ const OrderHistoryPage = () => {
       </div>
     );
   }
-  
+
   if (orders.length === 0) {
     return (
       <div className="order-history-page empty">
@@ -93,62 +129,107 @@ const OrderHistoryPage = () => {
   return (
     <div className="order-history-page">
       <div className="container">
-        <h1>Order History</h1>
-        
+        <h1>My Orders</h1>
         <div className="orders-list">
-          {orders.map(order => (
+          {orders.map((order) => (
             <div key={order.id} className="order-card">
               <div className="order-header">
                 <div className="order-info">
-                  <div className="order-number">
-                    <span>Order #</span>
-                    <span>{order.id}</span>
-                  </div>
-                  <div className="order-date">
-                    <span>Placed on</span>
-                    <span>{formatDate(order.date)}</span>
-                  </div>
-                  <div className="order-total">
-                    <span>Total</span>
-                    <span>{formatPrice(order.total)}</span>
-                  </div>
+                  <h3>Order #{order.id.toString().slice(-8)}</h3>
+                  <p className="order-date">
+                    {new Date(order.orderDate).toLocaleDateString('en-NP')}
+                  </p>
                 </div>
-                
                 <div className="order-status">
-                  <span className={`status-badge ${order.status.toLowerCase()}`}>
-                    {order.status}
+                  <span className={`status-badge ${order.status || order.paymentStatus}`}>
+                    {getOrderStatus(order)}
                   </span>
                 </div>
               </div>
-              
+
               <div className="order-items">
-                {order.items.map(item => (
-                  <div key={item.id} className="order-item">
-                    <img src={item.image || "/placeholder.svg"} alt={item.name} className="item-image" />
+                {order.items.map((item, index) => (
+                  <div key={index} className="order-item">
+                    <img 
+                      src={item.image || "/placeholder.svg"} 
+                      alt={item.name}
+                      onError={(e) => {
+                        e.target.onerror = null;
+                        e.target.src = "/placeholder.svg";
+                      }}
+                    />
                     <div className="item-details">
-                      <h3>{item.name}</h3>
-                      <div className="item-meta">
-                        <span>Qty: {item.quantity}</span>
-                        <span>{formatPrice(item.price)}</span>
-                      </div>
+                      <h4>{item.name}</h4>
+                      <p>Quantity: {item.quantity}</p>
+                      <p>Price: {formatPrice(item.price)}</p>
                     </div>
                   </div>
                 ))}
               </div>
-              
-              <div className="order-actions">
-                <Link to={`/order/${order.id}`} className="view-details-btn">
-                  View Order Details
-                </Link>
-                
-                {order.status === 'Delivered' && (
-                  <button className="buy-again-btn">Buy Again</button>
+
+              <div className="order-footer">
+                <div className="order-total">
+                  <span>Total:</span>
+                  <span className="total-amount">{formatPrice(order.totalAmount)}</span>
+                </div>
+                <div className="shipping-address">
+                  <h4>Shipping Address:</h4>
+                  <p>
+                    {order.shippingAddress.fullName}<br />
+                    {order.shippingAddress.address}<br />
+                    {order.shippingAddress.city}, {order.shippingAddress.state} {order.shippingAddress.postalCode}
+                  </p>
+                </div>
+                {order.status !== 'cancellation_requested' && (
+                  <div className="order-actions">
+                    <button 
+                      className="cancel-order-btn"
+                      onClick={() => handleCancellationRequest(order.id)}
+                    >
+                      Request Cancellation
+                    </button>
+                  </div>
+                )}
+                {order.status === 'cancellation_requested' && (
+                  <div className="cancellation-info">
+                    <p>Cancellation requested on: {new Date(order.cancellationRequestDate).toLocaleDateString('en-NP')}</p>
+                    <p>Reason: {order.cancellationReason}</p>
+                  </div>
                 )}
               </div>
             </div>
           ))}
         </div>
       </div>
+
+      {selectedOrderForCancellation && (
+        <div className="cancellation-modal">
+          <div className="modal-content">
+            <h2>Request Order Cancellation</h2>
+            <textarea
+              value={cancellationReason}
+              onChange={(e) => setCancellationReason(e.target.value)}
+              placeholder="Please provide a reason for cancellation..."
+              rows="4"
+            />
+            <div className="modal-actions">
+              <button 
+                className="submit-btn"
+                onClick={submitCancellationRequest}
+                disabled={!cancellationReason.trim()}
+              >
+                Submit Request
+              </button>
+              <button 
+                className="cancel-btn"
+                onClick={() => setSelectedOrderForCancellation(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

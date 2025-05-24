@@ -299,9 +299,16 @@ const getUsers = async (req, res) => {
   try {
     const pageSize = Number(req.query.pageSize) || 10;
     const page = Number(req.query.page) || 1;
+    const role = req.query.role;
+
+    // Build filter object
+    const filter = {};
+    if (role) {
+      filter.role = role;
+    }
     
-    const count = await User.countDocuments({});
-    const users = await User.find({})
+    const count = await User.countDocuments(filter);
+    const users = await User.find(filter)
       .select('-password')
       .sort({ createdAt: -1 })
       .limit(pageSize)
@@ -390,6 +397,128 @@ const updateUser = async (req, res) => {
   }
 };
 
+// @desc    Get all sellers
+// @route   GET /api/auth/sellers
+// @access  Private/Admin
+const getSellers = async (req, res) => {
+  try {
+    const sellers = await User.find({ role: 'seller' })
+      .select('-password')
+      .populate('sellerProfile');
+    res.json(sellers);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Get all seller applications
+// @route   GET /api/auth/seller-applications
+// @access  Private/Admin
+const getSellerApplications = async (req, res) => {
+  try {
+    const applications = await SellerApplication.find({ status: 'pending' })
+      .populate('user', 'username email');
+    res.json(applications);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Update seller verification status
+// @route   PUT /api/auth/sellers/:id/verify
+// @access  Private/Admin
+const updateSellerVerification = async (req, res) => {
+  try {
+    const seller = await User.findById(req.params.id);
+    
+    if (!seller) {
+      return res.status(404).json({ message: 'Seller not found' });
+    }
+    
+    if (seller.role !== 'seller') {
+      return res.status(400).json({ message: 'User is not a seller' });
+    }
+    
+    seller.sellerProfile.isVerified = req.body.isVerified;
+    await seller.save();
+    
+    res.json({
+      message: `Seller ${req.body.isVerified ? 'verified' : 'unverified'} successfully`,
+      seller
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Approve seller application
+// @route   PUT /api/auth/seller-applications/:id/approve
+// @access  Private/Admin
+const approveSellerApplication = async (req, res) => {
+  try {
+    const application = await SellerApplication.findById(req.params.id)
+      .populate('user');
+    
+    if (!application) {
+      return res.status(404).json({ message: 'Application not found' });
+    }
+    
+    if (application.status !== 'pending') {
+      return res.status(400).json({ message: 'Application is not pending' });
+    }
+    
+    // Update application status
+    application.status = 'approved';
+    await application.save();
+    
+    // Update user role and seller profile
+    const user = application.user;
+    user.role = 'seller';
+    user.sellerProfile = {
+      storeName: application.storeName,
+      storeDescription: application.storeDescription,
+      phoneNumber: application.phoneNumber,
+      address: application.address,
+      isVerified: true
+    };
+    await user.save();
+    
+    res.json({
+      message: 'Seller application approved successfully',
+      application
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Reject seller application
+// @route   PUT /api/auth/seller-applications/:id/reject
+// @access  Private/Admin
+const rejectSellerApplication = async (req, res) => {
+  try {
+    const application = await SellerApplication.findById(req.params.id);
+    
+    if (!application) {
+      return res.status(404).json({ message: 'Application not found' });
+    }
+    
+    if (application.status !== 'pending') {
+      return res.status(400).json({ message: 'Application is not pending' });
+    }
+    
+    application.status = 'rejected';
+    await application.save();
+    
+    res.json({
+      message: 'Seller application rejected successfully',
+      application
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   registerUser,
   loginUser,
@@ -403,4 +532,9 @@ module.exports = {
   deleteUser,
   getUserById,
   updateUser,
+  getSellers,
+  getSellerApplications,
+  updateSellerVerification,
+  approveSellerApplication,
+  rejectSellerApplication
 }; 

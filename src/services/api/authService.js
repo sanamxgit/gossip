@@ -179,6 +179,63 @@ const authService = {
   // Get user role
   getUserRole: () => {
     return localStorage.getItem('userRole') || null;
+  },
+
+  // Get all sellers
+  getSellers: async () => {
+    try {
+      const response = await api.get('/api/auth/sellers');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching sellers:', error);
+      throw error;
+    }
+  },
+
+  // Get all seller applications
+  getSellerApplications: async () => {
+    try {
+      const response = await api.get('/api/auth/seller-applications');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching seller applications:', error);
+      throw error;
+    }
+  },
+
+  // Update seller verification status
+  updateSellerVerification: async (sellerId, isVerified) => {
+    try {
+      const response = await api.put(`/api/auth/sellers/${sellerId}/verify`, {
+        isVerified
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error updating seller verification:', error);
+      throw error;
+    }
+  },
+
+  // Approve seller application
+  approveSellerApplication: async (applicationId) => {
+    try {
+      const response = await api.put(`/api/auth/seller-applications/${applicationId}/approve`);
+      return response.data;
+    } catch (error) {
+      console.error('Error approving seller application:', error);
+      throw error;
+    }
+  },
+
+  // Reject seller application
+  rejectSellerApplication: async (applicationId) => {
+    try {
+      const response = await api.put(`/api/auth/seller-applications/${applicationId}/reject`);
+      return response.data;
+    } catch (error) {
+      console.error('Error rejecting seller application:', error);
+      throw error;
+    }
   }
 };
 

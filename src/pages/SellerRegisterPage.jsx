@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import "./AuthPages.css";
 import "./SellerRegisterPage.css";
+import { FaUpload, FaFilePdf, FaFileWord } from "react-icons/fa";
 
 const SellerRegisterPage = () => {
   const [formData, setFormData] = useState({
@@ -20,13 +21,17 @@ const SellerRegisterPage = () => {
       country: ""
     },
     phoneNumber: "",
-    acceptTerms: false
+    acceptTerms: false,
+    documents: []
   });
   
   const [errors, setErrors] = useState({});
   const [isLoading, setIsLoading] = useState(false);
   const { register } = useAuth();
   const navigate = useNavigate();
+
+  const [documentPreviews, setDocumentPreviews] = useState([]);
+  const [uploadingDocuments, setUploadingDocuments] = useState(false);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -77,29 +82,56 @@ const SellerRegisterPage = () => {
     return Object.keys(newErrors).length === 0;
   };
 
+  const handleDocumentUpload = (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length > 3) {
+      alert('You can only upload up to 3 documents');
+      return;
+    }
+
+    // Create preview URLs
+    const previews = files.map(file => URL.createObjectURL(file));
+    setDocumentPreviews(previews);
+
+    setFormData(prev => ({
+      ...prev,
+      documents: files
+    }));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
     if (!validateForm()) return;
     
     setIsLoading(true);
+    setUploadingDocuments(true);
     
     try {
-      // First register as a user with role set to "seller"
-      const userData = {
-        username: formData.username,
-        email: formData.email,
-        password: formData.password,
-        role: "seller", // Request seller role directly
-        sellerProfile: {
-          storeName: formData.storeName,
-          storeDescription: formData.storeDescription,
-          address: formData.address,
-          phoneNumber: formData.phoneNumber
-        }
-      };
+      // Create FormData object to handle file uploads
+      const formDataToSend = new FormData();
       
-      await register(userData);
+      // Add basic user data
+      formDataToSend.append('username', formData.username);
+      formDataToSend.append('email', formData.email);
+      formDataToSend.append('password', formData.password);
+      formDataToSend.append('role', 'seller');
+      
+      // Add seller profile data
+      const sellerProfile = {
+        storeName: formData.storeName,
+        storeDescription: formData.storeDescription,
+        address: formData.address,
+        phoneNumber: formData.phoneNumber
+      };
+      formDataToSend.append('sellerProfile', JSON.stringify(sellerProfile));
+      
+      // Add verification documents
+      formData.documents.forEach((doc, index) => {
+        formDataToSend.append('documents', doc);
+      });
+      
+      await register(formDataToSend);
       
       // Navigate to seller dashboard upon successful registration
       navigate("/seller/dashboard");
@@ -107,6 +139,7 @@ const SellerRegisterPage = () => {
       setErrors({ submit: error.message || "Registration failed. Please try again." });
     } finally {
       setIsLoading(false);
+      setUploadingDocuments(false);
     }
   };
 
@@ -275,6 +308,56 @@ const SellerRegisterPage = () => {
                     onChange={handleChange}
                   />
                   {errors.country && <span className="error">{errors.country}</span>}
+                </div>
+              </div>
+            </div>
+
+            <div className="form-section">
+              <h2>Verification Documents</h2>
+              
+              <div className="form-group">
+                <label>Business Documents</label>
+                <div className="document-upload">
+                  <input
+                    type="file"
+                    id="documents"
+                    multiple
+                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                    onChange={handleDocumentUpload}
+                    style={{ display: 'none' }}
+                  />
+                  <label htmlFor="documents" className="upload-btn">
+                    <FaUpload /> Upload Documents
+                  </label>
+                  <p className="help-text">
+                    Please upload up to 3 documents for verification (Business registration, ID proof, address proof, etc.)
+                    <br />
+                    Accepted formats: PDF, DOC, DOCX, JPG, JPEG, PNG
+                  </p>
+                  
+                  {uploadingDocuments && (
+                    <div className="upload-loading">
+                      <div className="loading-spinner"></div>
+                      <span>Uploading documents...</span>
+                    </div>
+                  )}
+                  
+                  {documentPreviews.length > 0 && (
+                    <div className="document-previews">
+                      {documentPreviews.map((preview, index) => (
+                        <div key={index} className="document-preview">
+                          {preview.endsWith('.pdf') ? (
+                            <FaFilePdf className="document-icon" />
+                          ) : preview.endsWith('.doc') || preview.endsWith('.docx') ? (
+                            <FaFileWord className="document-icon" />
+                          ) : (
+                            <img src={preview} alt={`Document ${index + 1}`} />
+                          )}
+                          <span>Document {index + 1}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

@@ -121,49 +121,24 @@ const SellerAddProduct = () => {
     setError(null);
     
     try {
-      // Prepare form data for submission
-      const formData = new FormData();
-      
-      // Add basic product data
-      formData.append('title', productData.title);
-      formData.append('description', productData.description);
-      formData.append('price', productData.price);
-      formData.append('stock', productData.stock);
-      formData.append('category', productData.category);
-      
-      if (productData.discountPrice) {
-        formData.append('discountPrice', productData.discountPrice);
-      }
-      
-      if (productData.brand) {
-        formData.append('brand', productData.brand);
-      }
-      
-      // Add features
-      const filteredFeatures = productData.features.filter(feature => feature.trim() !== '');
-      formData.append('features', JSON.stringify(filteredFeatures));
-      
-      // Add specifications
-      const filteredSpecs = productData.specifications.filter(spec => 
-        spec.key.trim() !== '' && spec.value.trim() !== '');
-      formData.append('specifications', JSON.stringify(filteredSpecs));
-      
-      // Add AR models
-      if (productData.arModels.ios) {
-        formData.append('arModels[ios]', productData.arModels.ios);
-      }
-      
-      if (productData.arModels.android) {
-        formData.append('arModels[android]', productData.arModels.android);
-      }
-      
-      // Add images
-      imageFiles.forEach(file => {
-        formData.append('images', file);
-      });
-      
-      // Submit the form
-      await productService.createProduct(formData);
+      // Prepare the product data
+      const productDataToSubmit = {
+        ...productData,
+        images: imageFiles.map(file => {
+          if (file instanceof File) {
+            return file;
+          } else if (typeof file === 'object' && file.url && file.public_id) {
+            return {
+              url: file.url,
+              public_id: file.public_id
+            };
+          }
+          return null;
+        }).filter(img => img !== null)
+      };
+
+      // Submit the product data
+      await productService.createProduct(productDataToSubmit);
       
       setSuccess(true);
       setTimeout(() => {
@@ -172,7 +147,7 @@ const SellerAddProduct = () => {
       
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to create product. Please try again.');
-      console.error(err);
+      console.error('Error creating product:', err);
     } finally {
       setLoading(false);
     }

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>View in AR</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: #f0f0f0;
+        }
+        .ar-button {
+            padding: 16px 32px;
+            font-size: 18px;
+            background: #007AFF;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <a id="ar-link" rel="ar">
+        <button class="ar-button">View in AR</button>
+    </a>
+    <script>
+        function getQueryParam(param) {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get(param);
+        }
+
+        window.addEventListener('load', function() {
+            const modelUrl = getQueryParam('url');
+            if (modelUrl) {
+                const arLink = document.getElementById('ar-link');
+                // Use our proxy endpoint for USDZ files
+                const decodedUrl = decodeURIComponent(modelUrl);
+                if (decodedUrl.toLowerCase().endsWith('.usdz')) {
+                    const apiUrl = window.location.origin;
+                    arLink.href = `${apiUrl}/api/products/usdz-proxy?url=${encodeURIComponent(decodedUrl)}`;
+                } else {
+                    arLink.href = decodedUrl;
+                }
+                
+                // Auto-trigger AR on iOS
+                if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream) {
+                    setTimeout(() => {
+                        arLink.click();
+                    }, 300);
+                }
+            }
+        });
+    </script>
+</body>
+</html> 

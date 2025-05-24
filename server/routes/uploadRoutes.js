@@ -106,7 +106,7 @@ router.post('/store', protect, seller, upload.single('storeLogo'), async (req, r
 // @route   POST /api/upload/sections
 // @desc    Upload section images to Cloudinary
 // @access  Private/Admin
-router.post('/sections', protect, admin, upload.single('image'), async (req, res) => {
+router.post('/sections', protect, admin, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded' });
@@ -117,9 +117,11 @@ router.post('/sections', protect, admin, upload.single('image'), async (req, res
     const folder = `sections/${sectionType}`;
     
     const result = await uploadToCloudinary(req.file, folder);
+    
     res.json({
       message: 'File uploaded successfully',
-      ...result
+      url: result.url,
+      public_id: result.public_id
     });
   } catch (error) {
     console.error('Error uploading file:', error);

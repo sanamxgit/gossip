@@ -192,3 +192,4 @@ mongoose
       console.log(`Server running in TEST mode on port ${PORT} (without MongoDB)`);
     });
   }); 
+  console.log('Mongo URI:', process.env.MONGODB_URI);

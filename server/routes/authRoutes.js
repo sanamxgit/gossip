@@ -7,7 +7,7 @@ const { upload } = require('../middleware/uploadMiddleware');
 // @route   POST /api/auth/register
 // @desc    Register a new user
 // @access  Public
-router.post('/register', authController.registerUser);
+router.post('/register', upload.array('documents', 3), authController.registerUser);
 
 // @route   POST /api/auth/login
 // @desc    Login user & get token
@@ -81,5 +81,30 @@ router.get('/users/:id', protect, admin, authController.getUserById);
 // @desc    Update user
 // @access  Private/Admin
 router.put('/users/:id', protect, admin, authController.updateUser);
+
+// @route   GET /api/auth/sellers
+// @desc    Get all sellers
+// @access  Private/Admin
+router.get('/sellers', protect, admin, authController.getSellers);
+
+// @route   GET /api/auth/seller-applications
+// @desc    Get all seller applications
+// @access  Private/Admin
+router.get('/seller-applications', protect, admin, authController.getSellerApplications);
+
+// @route   PUT /api/auth/sellers/:id/verify
+// @desc    Update seller verification status
+// @access  Private/Admin
+router.put('/sellers/:id/verify', protect, admin, authController.updateSellerVerification);
+
+// @route   PUT /api/auth/seller-applications/:id/approve
+// @desc    Approve seller application
+// @access  Private/Admin
+router.put('/seller-applications/:id/approve', protect, admin, authController.approveSellerApplication);
+
+// @route   PUT /api/auth/seller-applications/:id/reject
+// @desc    Reject seller application
+// @access  Private/Admin
+router.put('/seller-applications/:id/reject', protect, admin, authController.rejectSellerApplication);
 
 module.exports = router; 

@@ -25,10 +25,17 @@ const ARButton = forwardRef(({ iosUrl, androidUrl, productName }, ref) => {
   
   const getIOSARLink = () => {
     if (!iosUrl) return '';
-    // Create a URL to an HTML page with rel="ar" instead of direct USDZ link
+    
+    // For USDZ files, use our AR viewer HTML page
+    if (iosUrl.toLowerCase().endsWith('.usdz')) {
+      return `${window.location.origin}/ar-view.html?url=${encodeURIComponent(iosUrl)}`;
+    }
+
+    // For other file types, create an HTML page with rel="ar"
     const encodedModelUrl = encodeURIComponent(iosUrl);
     const encodedTitle = encodeURIComponent(productName || 'Product');
-    return `${window.location.origin}/ar-quicklook/?url=${encodedModelUrl}&title=${encodedTitle}`;
+    const apiUrl = process.env.REACT_APP_API_URL || window.location.origin;
+    return `${apiUrl}/ar-quicklook/?url=${encodedModelUrl}&title=${encodedTitle}`;
   };
   
   const handleARClick = (e) => {
@@ -40,7 +47,7 @@ const ARButton = forwardRef(({ iosUrl, androidUrl, productName }, ref) => {
       window.location.href = getIOSARLink();
     } else if (isAndroid) {
       // Android devices can use Scene Viewer
-      window.location.href = `@https://arvr.google.com/scene-viewer/1.0?file=${encodeURIComponent(androidUrl)}&mode=ar_preferred`;
+      window.location.href = `https://arvr.google.com/scene-viewer/1.0?file=${encodeURIComponent(androidUrl)}&mode=ar_preferred`;
     } else {
       // Desktop or unsupported devices show QR code
       setShowQR(true);
@@ -85,7 +92,7 @@ const ARButton = forwardRef(({ iosUrl, androidUrl, productName }, ref) => {
             
             <div className="qr-code-container">
               <QRCodeSVG 
-                value={isIOS ? getIOSARLink() : androidUrl} 
+                value={isIOS ? getIOSARLink() : `https://arvr.google.com/scene-viewer/1.0?file=${encodeURIComponent(androidUrl)}&mode=ar_preferred`} 
                 size={200}
                 level="H"
                 includeMargin={true}

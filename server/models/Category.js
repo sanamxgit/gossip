@@ -28,37 +28,27 @@ const attributeSchema = new mongoose.Schema({
 const categorySchema = new mongoose.Schema({
   name: {
     type: String,
-    required: true,
-    trim: true
-  },
-  slug: {
-    type: String,
-    required: true,
+    required: [true, 'Category name is required'],
     unique: true,
     trim: true
   },
   description: {
     type: String,
-    trim: true
+    required: [true, 'Category description is required']
+  },
+  image: {
+    url: String,
+    public_id: String
   },
   parent: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Category',
     default: null
   },
-  ancestors: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Category'
-  }],
-  image: {
-    url: String,
-    public_id: String
+  slug: {
+    type: String,
+    unique: true
   },
-  icon: {
-    url: String,
-    public_id: String
-  },
-  attributes: [attributeSchema],
   isActive: {
     type: Boolean,
     default: true
@@ -86,11 +76,8 @@ categorySchema.virtual('children', {
 
 // Pre-save middleware to generate slug
 categorySchema.pre('save', function(next) {
-  if (!this.slug) {
-    this.slug = this.name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/(^-|-$)+/g, '');
+  if (this.name) {
+    this.slug = this.name.toLowerCase().replace(/[^a-zA-Z0-9]/g, '-');
   }
   next();
 });
@@ -100,11 +87,9 @@ categorySchema.pre('save', async function(next) {
   if (this.parent) {
     const parent = await this.constructor.findById(this.parent);
     if (parent) {
-      this.ancestors = [...parent.ancestors, parent._id];
       this.level = parent.level + 1;
     }
   } else {
-    this.ancestors = [];
     this.level = 0;
   }
   next();

@@ -34,6 +34,42 @@ productApi.interceptors.request.use(
   }
 );
 
+// Upload a product image
+const uploadProductImage = async (options) => {
+  try {
+    if (options.method === 'DELETE') {
+      // Check if the public_id appears to be a path containing folders
+      const hasFolder = options.public_id.includes('/');
+      
+      // For direct Cloudinary deletion use the new dedicated route
+      if (hasFolder) {
+        console.log(`Using direct Cloudinary delete for: ${options.public_id}`);
+        const response = await productApi.delete(`/upload/cloudinary/${encodeURIComponent(options.public_id)}`);
+        return response.data;
+      }
+      
+      // For simple IDs use the existing image/:public_id endpoint
+      console.log(`Using product image delete for: ${options.public_id}`);
+      const response = await productApi.delete(`/image/${options.public_id}`);
+      return response.data;
+    }
+
+    const formData = new FormData();
+    formData.append('file', options.file);
+    
+    const response = await productApi.post('/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    });
+    
+    return response.data;
+  } catch (error) {
+    console.error('Error handling product image:', error);
+    throw error;
+  }
+};
+
 const productService = {
   // Get all products with optional filtering and pagination
   getAllProducts: async (params = {}) => {
@@ -274,157 +310,7 @@ const productService = {
   // Create a product (seller/admin only)
   createProduct: async (productData) => {
     try {
-      console.log("Creating product with data:", productData);
-      
-      // If category is provided as an object with id, extract the id
-      if (productData.category && typeof productData.category === 'object' && productData.category._id) {
-        productData.category = productData.category._id;
-      }
-      
-      // Create a new FormData instance
       const formData = new FormData();
-      
-      // Process arModels to ensure they have the correct structure before adding to FormData
-      let processedArModels = { ios: {}, android: {} };
-      
-      if (productData.arModels) {
-        // Make sure iOS model has the right structure (url and public_id)
-        if (productData.arModels.ios) {
-          const iosModel = productData.arModels.ios;
-          processedArModels.ios = {
-            url: typeof iosModel === 'string' ? iosModel : iosModel.url || '',
-            public_id: typeof iosModel === 'string' ? 
-              (iosModel.split('/').pop() || '') : 
-              (iosModel.public_id || iosModel.url?.split('/').pop() || '')
-          };
-        }
-        
-        // Make sure Android model has the right structure (url and public_id)
-        if (productData.arModels.android) {
-          const androidModel = productData.arModels.android;
-          processedArModels.android = {
-            url: typeof androidModel === 'string' ? androidModel : androidModel.url || '',
-            public_id: typeof androidModel === 'string' ? 
-              (androidModel.split('/').pop() || '') : 
-              (androidModel.public_id || androidModel.url?.split('/').pop() || '')
-          };
-        }
-      }
-      
-      console.log("Processed AR models:", processedArModels);
-      
-      // Add all product data except images
-      Object.keys(productData).forEach(key => {
-        if (key !== 'images' && key !== 'arModels') {
-          if (typeof productData[key] === 'object') {
-            formData.append(key, JSON.stringify(productData[key]));
-          } else {
-            formData.append(key, productData[key]);
-          }
-        }
-      });
-      
-      // Add properly structured arModels to FormData
-      formData.append('arModels', JSON.stringify(processedArModels));
-      
-      // Handle images array - IMPORTANT CHANGE: Append each image field individually
-      if (Array.isArray(productData.images) && productData.images.length > 0) {
-        // First, ensure each image has url and public_id
-        const formattedImages = productData.images.map((img, idx) => {
-          // If image is already an object with url and public_id, return as is
-          if (img && typeof img === 'object' && img.url && img.public_id) {
-            console.log(`Image ${idx} is valid with url and public_id:`, img);
-            return img;
-          }
-          // If image is a string (URL), create proper format
-          if (typeof img === 'string') {
-            const publicId = img.split('/').pop().split('.')[0]; // Extract public_id from URL
-            console.log(`Image ${idx} is string URL, created public_id:`, publicId);
-            return {
-              url: img,
-              public_id: publicId
-            };
-          }
-          console.error(`Image ${idx} is invalid:`, img);
-          return null;
-        }).filter(img => img !== null); // Remove any null values
-
-        console.log("Formatted images for submission:", formattedImages);
-
-        // Add images count to FormData for validation
-        formData.append('imagesCount', formattedImages.length.toString());
-        
-        // Append each image individually with indexed properties
-        formattedImages.forEach((img, index) => {
-          formData.append(`images[${index}][url]`, img.url);
-          formData.append(`images[${index}][public_id]`, img.public_id);
-        });
-      } else {
-        console.warn("No images array provided in productData");
-        formData.append('imagesCount', '0');
-      }
-      
-      // Log the formData contents for debugging
-      console.log("Form data entries:");
-      for (let pair of formData.entries()) {
-        console.log(`${pair[0]}: ${pair[1]}`);
-      }
-      
-      const response = await productApi.post('/', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
-      });
-      
-      return response.data;
-    } catch (error) {
-      console.error('Error creating product:', error);
-      console.error('Error response:', error.response?.data);
-      throw error;
-    }
-  },
-
-  // Update a product (seller/admin only)
-  updateProduct: async (productId, productData) => {
-    try {
-      console.log("Updating product with data:", productData)
-      
-      // If category is provided as an object with id, extract the id
-      if (productData.category && typeof productData.category === 'object' && productData.category._id) {
-        productData.category = productData.category._id;
-      }
-      
-      // Create a new FormData instance for update
-      const formData = new FormData();
-      
-      // Process arModels to ensure they have the correct structure
-      let processedArModels = { ios: {}, android: {} };
-      
-      if (productData.arModels) {
-        // Make sure iOS model has the right structure (url and public_id)
-        if (productData.arModels.ios) {
-          const iosModel = productData.arModels.ios;
-          processedArModels.ios = {
-            url: typeof iosModel === 'string' ? iosModel : iosModel.url || '',
-            public_id: typeof iosModel === 'string' ? 
-              (iosModel.split('/').pop() || '') : 
-              (iosModel.public_id || iosModel.url?.split('/').pop() || '')
-          };
-        }
-        
-        // Make sure Android model has the right structure (url and public_id)
-        if (productData.arModels.android) {
-          const androidModel = productData.arModels.android;
-          processedArModels.android = {
-            url: typeof androidModel === 'string' ? androidModel : androidModel.url || '',
-            public_id: typeof androidModel === 'string' ? 
-              (androidModel.split('/').pop() || '') : 
-              (androidModel.public_id || androidModel.url?.split('/').pop() || '')
-          };
-        }
-      }
-      
-      console.log("Processed AR models for update:", processedArModels);
       
       // Add all product data except images and arModels
       Object.keys(productData).forEach(key => {
@@ -437,50 +323,56 @@ const productService = {
         }
       });
       
-      // Add properly structured arModels to FormData
-      formData.append('arModels', JSON.stringify(processedArModels));
-      
-      // Handle images array - using indexed properties in FormData
-      if (Array.isArray(productData.images) && productData.images.length > 0) {
-        // Ensure each image has url and public_id
-        const formattedImages = productData.images.map((img, idx) => {
-          // If image is already an object with url and public_id, return as is
-          if (img && typeof img === 'object' && img.url && img.public_id) {
-            console.log(`Image ${idx} is valid with url and public_id:`, img);
-            return img;
+      // Handle images array
+      if (Array.isArray(productData.images)) {
+        // Add the count of images
+        formData.append('imagesCount', productData.images.length.toString());
+        
+        // Process each image
+        for (let i = 0; i < productData.images.length; i++) {
+          const img = productData.images[i];
+          if (img instanceof File) {
+            // If it's a File object, upload it first
+            const uploadResponse = await uploadProductImage({ file: img });
+            if (uploadResponse && uploadResponse.secure_url) {
+              formData.append(`images[${i}][url]`, uploadResponse.secure_url);
+              formData.append(`images[${i}][public_id]`, uploadResponse.public_id);
+            }
+          } else if (img && typeof img === 'object' && img.url && img.public_id) {
+            // If it's already an uploaded image object
+            formData.append(`images[${i}][url]`, img.url);
+            formData.append(`images[${i}][public_id]`, img.public_id);
           }
-          // If image is a string (URL), create proper format
-          if (typeof img === 'string') {
-            const publicId = img.split('/').pop().split('.')[0]; // Extract public_id from URL
-            console.log(`Image ${idx} is string URL, created public_id:`, publicId);
-            return {
-              url: img,
-              public_id: publicId
-            };
-          }
-          console.error(`Image ${idx} is invalid:`, img);
-          return null;
-        }).filter(img => img !== null); // Remove any null values
+        }
+      }
 
-        console.log("Formatted images for update:", formattedImages);
-        
-        // Add images count to FormData for validation
-        formData.append('imagesCount', formattedImages.length.toString());
-        
-        // Append each image individually with indexed properties
-        formattedImages.forEach((img, index) => {
-          formData.append(`images[${index}][url]`, img.url);
-          formData.append(`images[${index}][public_id]`, img.public_id);
-        });
-      } else {
-        console.warn("No images array provided in productData update");
-        formData.append('imagesCount', '0');
+      // Handle AR models
+      if (productData.arModels) {
+        formData.append('arModels', JSON.stringify(productData.arModels));
       }
       
-      // Log the formData contents for debugging
-      console.log("Form data entries for update:");
-      for (let pair of formData.entries()) {
-        console.log(`${pair[0]}: ${pair[1]}`);
+      const response = await productApi.post('/', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error creating product:', error);
+      throw error;
+    }
+  },
+
+  // Update a product (seller/admin only)
+  updateProduct: async (productId, productData) => {
+    try {
+      // Create a new FormData instance for update
+      const formData = new FormData();
+      
+      // Add all fields from productData to formData
+      for (let [key, value] of productData.entries()) {
+        formData.append(key, value);
       }
       
       const response = await productApi.put(`/${productId}`, formData, {
@@ -681,61 +573,19 @@ const productService = {
     }
   },
 
-  // Upload a product image
-  uploadProductImage: async (options) => {
-    try {
-      if (options.method === 'DELETE') {
-        // Check if the public_id appears to be a path containing folders
-        const hasFolder = options.public_id.includes('/');
-        
-        // For direct Cloudinary deletion use the new dedicated route
-        if (hasFolder) {
-          console.log(`Using direct Cloudinary delete for: ${options.public_id}`);
-          const response = await productApi.delete(`/upload/cloudinary/${encodeURIComponent(options.public_id)}`);
-          return response.data;
-        }
-        
-        // For simple IDs use the existing image/:public_id endpoint
-        console.log(`Using product image delete for: ${options.public_id}`);
-        const response = await productApi.delete(`/image/${options.public_id}`);
-        return response.data;
-      }
-
-      const formData = new FormData();
-      formData.append('file', options.file);
-      
-      const response = await productApi.post('/upload', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
-      });
-      
-      return response.data;
-    } catch (error) {
-      console.error('Error handling product image:', error);
-      throw error;
-    }
-  },
-
   // Upload a 3D model
-  uploadModel: async (file, platform) => {
+  uploadModel: async (formData) => {
     try {
       // Debug logging for file and request details
+      const file = formData.get('file');
+      const platform = formData.get('platform');
+      
       console.log('Starting model upload:', {
         filename: file.name,
         type: file.type,
         size: file.size,
         platform
       });
-
-      // Create FormData object
-      const formData = new FormData();
-      
-      // Append the file with the correct file name
-      formData.append('file', file);
-      
-      // Explicitly add the platform
-      formData.append('platform', platform);
       
       console.log('Sending model upload request with FormData containing:',
         [...formData.entries()].map(entry => {
@@ -770,7 +620,7 @@ const productService = {
       return {
         url: response.data.secure_url,
         public_id: response.data.public_id,
-        platform: response.data.platform || platform
+        platform: response.data.platform
       };
     } catch (error) {
       console.error('Model upload error:', error);

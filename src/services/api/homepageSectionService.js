@@ -125,6 +125,9 @@ const homepageSectionService = {
   getSectionById: async (sectionId) => {
     try {
       const response = await homepageSectionApi.get(`/admin/${sectionId}`);
+      if (!response.data) {
+        throw new Error('Section not found');
+      }
       return response.data;
     } catch (error) {
       console.error(`Error fetching section ${sectionId}:`, error);
@@ -320,8 +323,7 @@ const homepageSectionService = {
       
       // Create FormData object
       const formData = new FormData();
-      // Use sectionImage as the field name to match what server expects
-      formData.append('sectionImage', imageFile);
+      formData.append('file', imageFile);
       formData.append('sectionType', sectionType);
       
       // Log form data (for debugging)
@@ -330,15 +332,13 @@ const homepageSectionService = {
         console.log(`${key}: ${value instanceof File ? `File (${value.name}, ${value.type}, ${value.size} bytes)` : value}`);
       }
       
-      // Make the API request
-      const response = await axios.post(`${API_URL}/api/homepage/sections/upload-image`, formData, {
+      // Make the API request to upload to Cloudinary
+      const response = await axios.post(`${API_URL}/api/upload/sections`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
-        // Add timeout and retry logic
         timeout: 30000, // 30 seconds timeout
-        // Add onUploadProgress handler for progress tracking if needed
         onUploadProgress: (progressEvent) => {
           const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
           console.log(`Upload progress: ${percentCompleted}%`);
@@ -347,77 +347,28 @@ const homepageSectionService = {
       
       console.log('Upload response:', response.data);
       
-      // Validate the response
-      if (!response.data) {
-        throw new Error('Empty response from server');
-      }
-      
-      // Select the best URL from the available options
-      let fileUrl;
-      
-      // Use this order of preference
-      if (response.data.alternativeUrl) {
-        fileUrl = response.data.alternativeUrl;
-        console.log('Using alternative URL:', fileUrl);
-      } else if (response.data.fileUrl) {
-        fileUrl = response.data.fileUrl;
-        console.log('Using standard URL:', fileUrl);
-      } else if (response.data.absoluteUrl) {
-        fileUrl = response.data.absoluteUrl;
-        console.log('Using absolute URL:', fileUrl);
-      } else {
+      if (!response.data || !response.data.url) {
         throw new Error('No valid URL received from server');
       }
       
-      // Test the URL with a HEAD request
-      try {
-        const urlToTest = fileUrl.startsWith('http') 
-          ? fileUrl 
-          : `${window.location.origin}${fileUrl}`;
-        
-        console.log('Testing URL accessibility:', urlToTest);
-        
-        // Use image preloading to test if the URL is accessible
-        const preloadImage = new Image();
-        preloadImage.src = urlToTest;
-        
-        // Let the browser start loading it - we don't need to wait for completion
-      } catch (testError) {
-        console.warn('URL test warning (continuing anyway):', testError);
-      }
-      
-      // Return the processed response with properly formatted URL
+      // Return the Cloudinary URL directly
       return {
-        ...response.data,
-        fileUrl,
-        // Store all URLs for potential fallback use
-        allUrls: {
-          alternativeUrl: response.data.alternativeUrl,
-          standardUrl: response.data.fileUrl,
-          absoluteUrl: response.data.absoluteUrl
-        }
+        fileUrl: response.data.url,
+        public_id: response.data.public_id
       };
+      
     } catch (error) {
       console.error('Error uploading section image:', error);
-      
-      // Detailed error logging
       if (error.response) {
-        // The request was made and the server responded with a status code
-        // that falls out of the range of 2xx
         console.error('Error response data:', error.response.data);
         console.error('Error response status:', error.response.status);
-        console.error('Error response headers:', error.response.headers);
-        
-        // Throw a more specific error message
         throw new Error(`Server error (${error.response.status}): ${
           error.response.data?.message || error.message
         }`);
       } else if (error.request) {
-        // The request was made but no response was received
         console.error('Error request:', error.request);
         throw new Error('No response received from server. Check your network connection.');
       } else {
-        // Something happened in setting up the request that triggered an Error
         console.error('Error message:', error.message);
         throw error;
       }

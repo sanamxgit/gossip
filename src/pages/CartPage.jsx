@@ -21,24 +21,19 @@ const CartPage = () => {
   }
 
   const handleCheckout = () => {
+    setIsCheckingOut(true);
     if (!user) {
-      navigate("/login")
-      return
+      navigate("/login", { state: { from: "/checkout" } });
+      return;
     }
-
-    setIsCheckingOut(true)
-
-    // Simulate checkout process
-    setTimeout(() => {
-      clearCart()
-      navigate("/checkout/success")
-    }, 2000)
-  }
+    navigate("/checkout", { replace: true });
+    setIsCheckingOut(false);
+  };
 
   const formatPrice = (price) => {
-    return new Intl.NumberFormat("en-IN", {
+    return new Intl.NumberFormat("en-NP", {
       style: "currency",
-      currency: "INR",
+      currency: "NPR",
       minimumFractionDigits: 2,
     }).format(price)
   }
@@ -75,12 +70,20 @@ const CartPage = () => {
             </div>
 
             {cartItems.map((item) => (
-              <div key={item.id} className="cart-item">
+              <div key={item._id} className="cart-item">
                 <div className="cart-product">
-                  <img src={item.image || "/placeholder.svg"} alt={item.name} className="cart-product-image" />
+                  <img 
+                    src={item.image || "/placeholder.svg"} 
+                    alt={item.name} 
+                    className="cart-product-image"
+                    onError={(e) => {
+                      e.target.onerror = null;
+                      e.target.src = "/placeholder.svg";
+                    }}
+                  />
                   <div className="cart-product-info">
                     <h3>{item.name}</h3>
-                    {item.arIosUrl && <span className="ar-badge">AR Available</span>}
+                    {item.sellerName && <p className="seller-info">Sold by: {item.sellerName}</p>}
                   </div>
                 </div>
 
@@ -88,16 +91,16 @@ const CartPage = () => {
 
                 <div className="cart-quantity">
                   <div className="quantity-selector">
-                    <button className="quantity-btn" onClick={() => handleQuantityChange(item.id, item.quantity - 1)}>
+                    <button className="quantity-btn" onClick={() => handleQuantityChange(item._id, item.quantity - 1)}>
                       -
                     </button>
                     <input
                       type="number"
                       value={item.quantity}
-                      onChange={(e) => handleQuantityChange(item.id, e.target.value)}
+                      onChange={(e) => handleQuantityChange(item._id, e.target.value)}
                       min="1"
                     />
-                    <button className="quantity-btn" onClick={() => handleQuantityChange(item.id, item.quantity + 1)}>
+                    <button className="quantity-btn" onClick={() => handleQuantityChange(item._id, item.quantity + 1)}>
                       +
                     </button>
                   </div>
@@ -106,7 +109,7 @@ const CartPage = () => {
                 <div className="cart-total">{formatPrice(item.price * item.quantity)}</div>
 
                 <div className="cart-actions">
-                  <button className="remove-btn" onClick={() => handleRemoveItem(item.id)}>
+                  <button className="remove-btn" onClick={() => handleRemoveItem(item._id)}>
                     Remove
                   </button>
                 </div>

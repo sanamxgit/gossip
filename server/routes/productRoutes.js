@@ -12,6 +12,7 @@ const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
+const axios = require('axios');
 
 // Configure Cloudinary
 cloudinary.config({
@@ -23,16 +24,40 @@ cloudinary.config({
 // Configure multer for basic disk storage
 const modelUpload = multer({
   storage: multer.diskStorage({
-    destination: function (req, file, cb) {
-      // Use the system's temp directory
-      cb(null, os.tmpdir());
+    destination: async function (req, file, cb) {
+      const uploadDir = os.tmpdir();
+      try {
+        // Check if directory exists and is writable
+        try {
+          await fs.access(uploadDir, fs.constants.W_OK);
+          console.log('Upload directory exists and is writable:', uploadDir);
+        } catch (error) {
+          console.error('Upload directory not accessible:', error);
+          return cb(new Error('Upload directory not accessible'));
+        }
+        cb(null, uploadDir);
+      } catch (error) {
+        console.error('Error checking upload directory:', error);
+        cb(error);
+      }
     },
     filename: function (req, file, cb) {
-      // Create a unique filename
       const hash = crypto.randomBytes(8).toString('hex');
-      cb(null, `${hash}-${file.originalname}`);
+      const safeName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+      cb(null, `${hash}-${safeName}`);
     }
   }),
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    
+    // Only validate file extension
+    if (!['.usdz', '.glb', '.gltf'].includes(ext)) {
+      cb(new Error('Only USDZ, GLB, or GLTF files are allowed'));
+      return;
+    }
+    
+    cb(null, true);
+  },
   limits: {
     fileSize: 100 * 1024 * 1024 // 100MB
   }
@@ -61,98 +86,171 @@ const imageUpload = multer({
 router.post('/upload/model', protect, seller, (req, res) => {
   console.log('New model upload request received');
   
-  // Use multer to handle the file upload to disk
   modelUpload(req, res, async (err) => {
     let tempFilePath = null;
     
     try {
-      // Handle multer errors
       if (err) {
         console.error('Error in file upload middleware:', err);
         return res.status(400).json({ message: err.message });
       }
       
-      // Check if file exists
       if (!req.file) {
         console.error('No file provided');
         return res.status(400).json({ message: 'No file uploaded' });
       }
+
+      const platform = req.body.platform;
+      console.log('Platform:', platform);
+      console.log('File details:', {
+        filename: req.file.originalname,
+        size: req.file.size,
+        mimetype: req.file.mimetype
+      });
+
+      if (!platform) {
+        console.error('Platform not specified');
+        return res.status(400).json({ message: 'Platform is required (ios or android)' });
+      }
+
+      const ext = path.extname(req.file.originalname).toLowerCase();
+      if (platform === 'ios' && ext !== '.usdz') {
+        return res.status(400).json({ message: 'Only USDZ files are allowed for iOS' });
+      }
+      if (platform === 'android' && !['.glb', '.gltf'].includes(ext)) {
+        return res.status(400).json({ message: 'Only GLB or GLTF files are allowed for Android' });
+      }
       
       tempFilePath = req.file.path;
       
-      console.log('File received:', {
-        filename: req.file.originalname,
-        size: req.file.size,
-        mimetype: req.file.mimetype,
-        tempPath: tempFilePath
-      });
-      
-      // Get the platform
-      const platform = req.body.platform || 'default';
-      
-      console.log('Uploading to Cloudinary for platform:', platform);
-      
-      // Get file extension from original name
-      const ext = path.extname(req.file.originalname).toLowerCase().replace('.', '');
-      
-      // Generate a unique public_id
-      const publicId = `ar_models/${platform}/${Date.now()}-${path.basename(req.file.originalname, path.extname(req.file.originalname))}`;
-      
-      // Configure upload options for Cloudinary
-      const uploadOptions = {
-        resource_type: 'raw',  // Use 'raw' for 3D model files
-        public_id: publicId,
-        overwrite: true
-      };
-      
-      console.log('Cloudinary upload options:', uploadOptions);
-      
-      // Upload directly to Cloudinary
-      cloudinary.uploader.upload(tempFilePath, uploadOptions, (error, result) => {
-        // Always clean up the temp file regardless of success or failure
-        if (tempFilePath) {
-          fs.unlink(tempFilePath, (unlinkErr) => {
-            if (unlinkErr) {
-              console.error('Error deleting temp file:', unlinkErr);
-            }
-          });
+      try {
+        await fs.promises.access(tempFilePath, fs.constants.R_OK);
+        console.log('Temp file exists and is readable');
+        
+        // Get file stats to verify size
+        const stats = await fs.promises.stat(tempFilePath);
+        console.log('File size:', stats.size);
+        
+        if (stats.size === 0) {
+          throw new Error('File is empty');
         }
-        
-        if (error) {
-          console.error('Cloudinary upload error:', error);
-          return res.status(500).json({
-            message: 'Error uploading to Cloudinary',
-            error: error.message
-          });
-        }
-        
-        console.log('Cloudinary upload success:', {
-          publicId: result.public_id,
-          url: result.secure_url,
-          format: result.format
-        });
-        
-        // Return success response
-        res.json({
-          secure_url: result.secure_url,
-          public_id: result.public_id,
-          platform: platform
-        });
-      });
-    } catch (error) {
-      console.error('Unexpected error in model upload:', error);
-      
-      // Clean up the temp file if it exists
-      if (tempFilePath) {
-        fs.unlink(tempFilePath, (unlinkErr) => {
-          if (unlinkErr) {
-            console.error('Error deleting temp file:', unlinkErr);
-          }
+      } catch (error) {
+        console.error('File access error:', error);
+        return res.status(500).json({ 
+          message: 'File access error',
+          error: error.message 
         });
       }
+
+      // Upload to Cloudinary with chunked upload and progress monitoring
+      try {
+        const uploadResult = await new Promise((resolve, reject) => {
+          let uploadProgress = 0;
+          const uploadTimeout = setTimeout(() => {
+            reject(new Error('Upload timeout after 5 minutes'));
+          }, 5 * 60 * 1000); // 5 minute timeout
+
+          const uploadStream = cloudinary.uploader.upload_stream(
+            {
+              folder: `ar_models/${platform}`,
+              resource_type: 'raw',
+              use_filename: true,
+              unique_filename: true,
+              chunk_size: 6000000, // 6MB chunks
+              timeout: 120000, // 2 minute timeout per chunk
+            },
+            (error, result) => {
+              clearTimeout(uploadTimeout);
+              if (error) {
+                console.error('Cloudinary upload error:', error);
+                reject(error);
+              } else {
+                console.log('Cloudinary upload successful:', result);
+                resolve(result);
+              }
+            }
+          );
+
+          // Create read stream with explicit high water mark for better memory handling
+          const fileStream = fs.createReadStream(tempFilePath, {
+            highWaterMark: 1024 * 1024, // 1MB buffer
+          });
+
+          fileStream.on('error', (error) => {
+            clearTimeout(uploadTimeout);
+            console.error('File read error:', error);
+            reject(new Error(`File read error: ${error.message}`));
+          });
+
+          uploadStream.on('error', (error) => {
+            clearTimeout(uploadTimeout);
+            console.error('Upload stream error:', error);
+            reject(new Error(`Upload stream error: ${error.message}`));
+          });
+
+          // Monitor upload progress
+          uploadStream.on('progress', (progress) => {
+            uploadProgress = progress.bytes || 0;
+            console.log(`Upload progress: ${uploadProgress} bytes`);
+          });
+
+          fileStream.pipe(uploadStream);
+        });
+
+        // Clean up temp file
+        try {
+          await fs.promises.unlink(tempFilePath);
+          console.log('Temp file cleaned up successfully');
+        } catch (unlinkError) {
+          console.error('Error cleaning up temp file:', unlinkError);
+        }
+
+        return res.json({
+          secure_url: uploadResult.secure_url,
+          public_id: uploadResult.public_id,
+          platform: platform
+        });
+
+      } catch (uploadError) {
+        console.error('Detailed upload error:', {
+          message: uploadError.message,
+          stack: uploadError.stack,
+          code: uploadError.code,
+          http_code: uploadError.http_code
+        });
+        
+        // Clean up temp file if it exists
+        if (tempFilePath) {
+          try {
+            await fs.promises.unlink(tempFilePath);
+            console.log('Temp file cleaned up after error');
+          } catch (unlinkError) {
+            console.error('Error cleaning up temp file:', unlinkError);
+          }
+        }
+        
+        return res.status(500).json({
+          message: 'Error uploading model to Cloudinary',
+          error: uploadError.message,
+          details: uploadError.http_code ? `HTTP ${uploadError.http_code}` : 'Unknown error'
+        });
+      }
+
+    } catch (error) {
+      console.error('General error:', error);
       
-      res.status(500).json({
-        message: 'Server error during file upload',
+      // Clean up temp file if it exists
+      if (tempFilePath) {
+        try {
+          await fs.promises.unlink(tempFilePath);
+          console.log('Temp file cleaned up after error');
+        } catch (unlinkError) {
+          console.error('Error cleaning up temp file:', unlinkError);
+        }
+      }
+      
+      return res.status(500).json({
+        message: 'Error processing upload',
         error: error.message
       });
     }
@@ -168,13 +266,14 @@ router.post('/upload', protect, seller, imageUpload.single('file'), async (req, 
       return res.status(400).json({ message: 'No file uploaded' });
     }
 
+    // Since we're using CloudinaryStorage, req.file will contain Cloudinary info
     res.json({
-      secure_url: req.file.path,
-      public_id: req.file.filename
+      secure_url: req.file.path, // This is the Cloudinary URL
+      public_id: req.file.filename // This is the Cloudinary public_id
     });
   } catch (error) {
     console.error('Error uploading image:', error);
-    res.status(500).json({ message: 'Error uploading image' });
+    res.status(500).json({ message: 'Error uploading image', error: error.message });
   }
 });
 
@@ -201,31 +300,121 @@ router.get('/ar-view/:id', async (req, res) => {
       return res.status(404).json({ message: 'Product not found' });
     }
 
-    // Check if iOS or Android
     const userAgent = req.headers['user-agent'].toLowerCase();
     const isIOS = /iphone|ipad|ipod/.test(userAgent);
     
-    console.log('AR View Request:', {
-      productId: req.params.id,
-      userAgent: req.headers['user-agent'],
-      isIOS,
-      arModels: product.arModels
-    });
-    
     if (isIOS) {
-      // For iOS, redirect directly to AR Quick Look
-      if (product.arModels && product.arModels.ios && product.arModels.ios.url) {
-        return res.redirect(product.arModels.ios.url);
+      if (product.arModels?.ios?.url) {
+        const modelUrl = product.arModels.ios.url;
+        
+        // For iOS, we need to handle USDZ files directly
+        if (modelUrl.endsWith('.usdz')) {
+          // Instead of redirecting directly to the model URL,
+          // use our proxy endpoint that sets the correct MIME type
+          const proxyUrl = `/api/products/usdz-proxy?url=${encodeURIComponent(modelUrl)}`;
+          
+          // Serve the AR Quick Look page with the proxied URL
+          res.setHeader('Content-Type', 'text/html');
+          res.setHeader('Cache-Control', 'no-cache');
+          
+          res.send(`
+            <!DOCTYPE html>
+            <html>
+              <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+                <title>${product.title} - View in AR</title>
+                <style>
+                  body { margin: 0; padding: 0; width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; }
+                  .ar-link {
+                    display: block;
+                    width: 100%;
+                    height: 100%;
+                    text-decoration: none;
+                  }
+                </style>
+              </head>
+              <body>
+                <a rel="ar" href="${proxyUrl}">
+                  <img src="${encodeURI(product.images?.[0]?.url || '')}" style="display: none;">
+                </a>
+                <script>
+                  // Auto-trigger AR Quick Look
+                  window.addEventListener('load', () => {
+                    document.querySelector('a[rel="ar"]').click();
+                  });
+                </script>
+              </body>
+            </html>
+          `);
+          return;
+        }
+        
+        // If not a USDZ file, continue with normal handling
+        res.setHeader('Content-Type', 'text/html');
+        res.setHeader('Cache-Control', 'no-cache');
+        
+        res.send(`
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+              <title>${product.title} - View in AR</title>
+              <style>
+                body { margin: 0; padding: 0; width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; }
+                .ar-link {
+                  display: block;
+                  width: 100%;
+                  height: 100%;
+                  text-decoration: none;
+                }
+              </style>
+            </head>
+            <body>
+              <a rel="ar" href="${encodeURI(modelUrl)}">
+                <img src="${encodeURI(product.images?.[0]?.url || '')}" style="display: none;">
+              </a>
+              <script>
+                // Auto-trigger AR Quick Look
+                window.addEventListener('load', () => {
+                  document.querySelector('a[rel="ar"]').click();
+                });
+              </script>
+            </body>
+          </html>
+        `);
       } else {
-        return res.status(404).json({ message: 'No iOS AR model available' });
+        res.status(404).json({ message: 'No iOS AR model available' });
       }
     } else {
-      // For Android, redirect to Scene Viewer
-      if (product.arModels && product.arModels.android && product.arModels.android.url) {
-        const sceneViewerUrl = `intent://arvr.google.com/scene-viewer/1.0?file=${product.arModels.android.url}&mode=ar_only#Intent;scheme=https;package=com.google.android.googlequicksearchbox;action=android.intent.action.VIEW;S.browser_fallback_url=https://developers.google.com/ar;end;`;
-        return res.redirect(sceneViewerUrl);
+      // For Android devices
+      if (product.arModels?.android?.url) {
+        const modelUrl = product.arModels.android.url;
+        
+        // Set proper headers for Android Scene Viewer
+        res.setHeader('Content-Type', 'text/html');
+        
+        // Create the Scene Viewer URL with proper parameters
+        const sceneViewerUrl = `https://arvr.google.com/scene-viewer/1.0?file=${encodeURIComponent(modelUrl)}&mode=ar_preferred&title=${encodeURIComponent(product.title)}`;
+        
+        res.send(`
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>${product.title} - View in AR</title>
+            </head>
+            <body>
+              <script>
+                window.location.href = '${sceneViewerUrl}';
+              </script>
+            </body>
+          </html>
+        `);
       } else {
-        return res.status(404).json({ message: 'No Android AR model available' });
+        res.status(404).json({ message: 'No Android AR model available' });
       }
     }
   } catch (error) {
@@ -410,6 +599,111 @@ router.delete('/upload/cloudinary/:public_id', protect, seller, async (req, res)
 // @access  Public
 router.get('/ping', (req, res) => {
   res.json({ message: 'Server is running', timestamp: new Date().toISOString() });
+});
+
+// @route   GET /api/products/ar-proxy
+// @desc    Proxy for serving USDZ files with correct MIME type
+// @access  Public
+router.get('/ar-proxy', async (req, res) => {
+  try {
+    const { url } = req.query;
+    
+    if (!url) {
+      return res.status(400).json({ message: 'URL parameter is required' });
+    }
+
+    // Validate file extension
+    if (!url.toLowerCase().endsWith('.usdz')) {
+      return res.status(400).json({ message: 'Only USDZ files are supported for AR Quick Look' });
+    }
+
+    // Fetch the file from Cloudinary
+    const response = await axios({
+      method: 'GET',
+      url: url,
+      responseType: 'arraybuffer',
+      headers: {
+        'Accept': '*/*',
+        'User-Agent': 'ARQuickLook/1.0'
+      }
+    });
+
+    // Set comprehensive headers for iOS AR QuickLook
+    res.setHeader('Content-Type', 'model/vnd.usdz+zip');
+    res.setHeader('Content-Disposition', 'inline; filename="model.usdz"');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET');
+    res.setHeader('Cache-Control', 'public, max-age=31536000');
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    
+    // Send the buffer directly
+    res.send(response.data);
+  } catch (error) {
+    console.error('Error serving AR model:', error);
+    res.status(500).json({ message: 'Error serving AR model' });
+  }
+});
+
+// @route   GET /api/products/usdz-proxy
+// @desc    Proxy for serving USDZ files with correct MIME type
+// @access  Public
+router.get('/usdz-proxy', async (req, res) => {
+  try {
+    const { url } = req.query;
+    
+    if (!url) {
+      return res.status(400).json({ message: 'URL parameter is required' });
+    }
+
+    // Validate file extension
+    if (!url.toLowerCase().endsWith('.usdz')) {
+      return res.status(400).json({ message: 'Only USDZ files are supported' });
+    }
+
+    // Stream the file from Cloudinary
+    const response = await axios({
+      method: 'GET',
+      url: url,
+      responseType: 'stream',
+      headers: {
+        'Accept': '*/*',
+        'User-Agent': 'ARQuickLook/1.0'
+      }
+    });
+
+    // Set comprehensive headers for iOS AR QuickLook
+    res.setHeader('Content-Type', 'model/vnd.usdz+zip');
+    res.setHeader('Content-Disposition', 'inline; filename="model.usdz"');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET');
+    res.setHeader('Cache-Control', 'public, max-age=31536000');
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    
+    // If Cloudinary provides content length, pass it through
+    if (response.headers['content-length']) {
+      res.setHeader('Content-Length', response.headers['content-length']);
+    }
+    
+    // Pipe the response directly to avoid loading the entire file into memory
+    response.data.pipe(res);
+
+    // Handle errors in the stream
+    response.data.on('error', (error) => {
+      console.error('Error streaming USDZ file:', error);
+      // Only send error if headers haven't been sent
+      if (!res.headersSent) {
+        res.status(500).json({ message: 'Error streaming USDZ file' });
+      }
+    });
+  } catch (error) {
+    console.error('Error serving USDZ file:', error);
+    // Only send error if headers haven't been sent
+    if (!res.headersSent) {
+      res.status(500).json({ message: 'Error serving USDZ file' });
+    }
+  }
 });
 
 module.exports = router; 

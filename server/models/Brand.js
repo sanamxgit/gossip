@@ -9,11 +9,37 @@ const brandSchema = new mongoose.Schema({
   },
   description: {
     type: String,
-    trim: true
+    required: [true, 'Brand description is required']
   },
   logo: {
+    url: String,
+    public_id: String
+  },
+  seller: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  documents: [{
+    name: String,
+    url: String,
+    public_id: String,
+    type: String // e.g., 'registration', 'license', etc.
+  }],
+  isVerified: {
+    type: Boolean,
+    default: false
+  },
+  verificationStatus: {
     type: String,
-    default: ''
+    enum: ['pending', 'approved', 'rejected'],
+    default: 'pending'
+  },
+  verificationNotes: String,
+  verifiedAt: Date,
+  verifiedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
   },
   slug: {
     type: String,
@@ -29,10 +55,6 @@ const brandSchema = new mongoose.Schema({
     ref: 'User',
     default: null
   },
-  isVerified: {
-    type: Boolean,
-    default: false
-  },
   active: {
     type: Boolean,
     default: true
@@ -41,6 +63,8 @@ const brandSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   }
+}, {
+  timestamps: true
 });
 
 // Create slug from name before saving

@@ -19,7 +19,7 @@ const QRCodeGenerator = forwardRef(({ iosUrl, androidUrl }, ref) => {
   // Generate deep link for Android Scene Viewer
   const getAndroidQRUrl = () => {
     if (!androidUrl) return '';
-    return `@https://arvr.google.com/scene-viewer/1.0?file=${encodeURIComponent(androidUrl)}&mode=ar_preferred`;
+    return `https://arvr.google.com/scene-viewer/1.0?file=${encodeURIComponent(androidUrl)}&mode=ar_preferred`;
   };
   
   const getQRValue = () => {

@@ -69,7 +69,7 @@ router.post('/model', upload.single('model'), async (req, res) => {
         // For Android (GLB), return Scene Viewer URL
         const url = platform === 'ios' 
             ? result.secure_url
-            : `intent://arvr.google.com/scene-viewer/1.0?file=${result.secure_url}&mode=ar_only#Intent;scheme=https;package=com.google.android.googlequicksearchbox;action=android.intent.action.VIEW;S.browser_fallback_url=https://developers.google.com/ar;end;`;
+            : `https://arvr.google.com/scene-viewer/1.0?file=${result.secure_url}&mode=ar_preferred`;
 
         res.json({
             url,

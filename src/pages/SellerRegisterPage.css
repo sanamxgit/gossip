@@ -56,4 +56,87 @@
   .seller-register-card {
     padding: 1.5rem;
   }
+}
+
+/* Document Upload Styles */
+.document-upload {
+  margin-top: 10px;
+}
+
+.upload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background-color: #4a90e2;
+  color: white;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.upload-btn:hover {
+  background-color: #357abd;
+}
+
+.help-text {
+  margin-top: 8px;
+  font-size: 0.9rem;
+  color: #666;
+  line-height: 1.4;
+}
+
+.upload-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  color: #666;
+}
+
+.loading-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #f3f3f3;
+  border-top: 2px solid #4a90e2;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.document-previews {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 15px;
+  margin-top: 15px;
+}
+
+.document-preview {
+  background: #f5f5f5;
+  border-radius: 4px;
+  padding: 10px;
+  text-align: center;
+}
+
+.document-preview img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+.document-icon {
+  font-size: 2.5rem;
+  margin-bottom: 8px;
+  color: #4a90e2;
+}
+
+.document-preview span {
+  display: block;
+  font-size: 0.9rem;
+  color: #666;
 } 

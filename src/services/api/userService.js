@@ -431,6 +431,17 @@ const userService = {
       console.error('Error disabling two-factor authentication:', error);
       throw error;
     }
+  },
+
+  // Get users by role
+  getUsersByRole: async (role) => {
+    try {
+      const response = await userApi.get(`/admin/users?role=${role}`);
+      return response.data;
+    } catch (error) {
+      console.error(`Error fetching ${role} users:`, error);
+      throw error;
+    }
   }
 };
 

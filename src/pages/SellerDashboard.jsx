@@ -37,8 +37,10 @@ const SellerDashboard = () => {
     category: "",
     stock: "",
     images: [],
-    arIosUrl: "",
-    arAndroidUrl: "",
+    arModels: {
+      ios: {},
+      android: {}
+    },
     brand: "",
     colors: []
   })
@@ -63,6 +65,9 @@ const SellerDashboard = () => {
     ios: null,
     android: null
   })
+
+  // Add this with other state declarations at the top
+  const [imageUploading, setImageUploading] = useState(false);
 
   useEffect(() => {
     // Check if user is logged in and is a seller
@@ -166,8 +171,10 @@ const SellerDashboard = () => {
       category: "",
       stock: "",
       images: [],
-      arIosUrl: "",
-      arAndroidUrl: "",
+      arModels: {
+        ios: {},
+        android: {}
+      },
       brand: "",
       colors: []
     })
@@ -187,12 +194,18 @@ const SellerDashboard = () => {
         category: product.category?._id || product.category || "",
         stock: product.stock || "",
         images: product.images || [],
-        arIosUrl: product.arModels?.ios || "",
-        arAndroidUrl: product.arModels?.android || "",
+        arModels: {
+          ios: product.arModels?.ios || {},
+          android: product.arModels?.android || {}
+        },
         brand: product.brand || "",
         colors: product.colors || []
       })
       setPreviewImages(product.images || [])
+      setModelPreviews({
+        ios: product.arModels?.ios?.url || null,
+        android: product.arModels?.android?.url || null
+      })
       setShowProductForm(true)
     } catch (error) {
       console.error("Error fetching product:", error)
@@ -232,10 +245,34 @@ const SellerDashboard = () => {
 
   const handleProductFormChange = (e) => {
     const { name, value } = e.target
+    if (name === 'arIosUrl') {
+      setProductFormData(prev => ({
+        ...prev,
+        arModels: {
+          ...prev.arModels,
+          ios: {
+            url: value,
+            public_id: value.split('/').pop() || ''
+          }
+        }
+      }))
+    } else if (name === 'arAndroidUrl') {
+      setProductFormData(prev => ({
+        ...prev,
+        arModels: {
+          ...prev.arModels,
+          android: {
+            url: value,
+            public_id: value.split('/').pop() || ''
+          }
+        }
+      }))
+    } else {
     setProductFormData(prev => ({
       ...prev,
       [name]: value
     }))
+    }
   }
 
   const handleImageUpload = async (e) => {
@@ -250,20 +287,10 @@ const SellerDashboard = () => {
     }
 
     try {
-      // Check for duplicate images before uploading
-      const existingUrls = previewImages.map(img => 
-        typeof img === 'string' ? img : img.url
-      );
+      // Show loading state for image upload only
+      setImageUploading(true);
 
       const uploadPromises = files.map(async (file) => {
-        // Create a temporary URL to check for duplicates
-        const tempUrl = URL.createObjectURL(file);
-        if (existingUrls.includes(tempUrl)) {
-          URL.revokeObjectURL(tempUrl);
-          return null;
-        }
-        URL.revokeObjectURL(tempUrl);
-
         const formData = new FormData();
         formData.append('file', file);
 
@@ -274,23 +301,28 @@ const SellerDashboard = () => {
           }
         });
 
-        return response.data;
+        return {
+          url: response.data.secure_url,
+          public_id: response.data.public_id
+        };
       });
 
-      const uploadedImages = (await Promise.all(uploadPromises)).filter(img => img !== null);
+      const uploadedImages = await Promise.all(uploadPromises);
 
       // Update preview images and form data
       const newPreviewImages = [...previewImages];
-      const newImages = [...productFormData.images];
+      const newImages = [...productFormData.images || []];
 
       uploadedImages.forEach(image => {
-        if (image) {
-          const imageUrl = image.secure_url;
+        if (image && image.url) {
           // Check if image URL already exists
-          if (!newPreviewImages.includes(imageUrl)) {
-            newPreviewImages.push(imageUrl);
+          if (!newPreviewImages.some(preview => 
+            (typeof preview === 'string' && preview === image.url) || 
+            (preview.url === image.url)
+          )) {
+            newPreviewImages.push(image.url);
             newImages.push({
-              url: imageUrl,
+              url: image.url,
               public_id: image.public_id
             });
           }
@@ -302,9 +334,14 @@ const SellerDashboard = () => {
         ...prev,
         images: newImages
       }));
+
+      console.log('Updated product form data:', productFormData);
+
     } catch (error) {
       console.error('Error uploading images:', error);
       alert('Failed to upload images. Please try again.');
+    } finally {
+      setImageUploading(false);
     }
   };
 
@@ -379,8 +416,13 @@ const SellerDashboard = () => {
     try {
       setModelUploading(prev => ({ ...prev, [platform]: true }));
 
-      // Upload model to Cloudinary
-      const result = await productService.uploadModel(file, platform);
+      // Create FormData and explicitly add the platform
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('platform', platform);
+
+      // Upload model using the service
+      const result = await productService.uploadModel(formData);
       
       console.log(`${platform} model upload result:`, result);
       
@@ -482,75 +524,71 @@ const SellerDashboard = () => {
       console.log("AR Models being submitted:", formattedArModels);
 
       // Prepare the form data
-      const formData = {
-        title: productFormData.title,
-        price: parseFloat(productFormData.price),
-        originalPrice: parseFloat(productFormData.originalPrice),
-        description: productFormData.description,
-        category: productFormData.category,
-        brand: productFormData.brand || "651d72f84b14d81584889191",
-        stock: parseInt(productFormData.stock),
-        arModels: formattedArModels,
-        colors: productFormData.colors
-      }
+      const formData = new FormData();
+      
+      // Add basic product information
+      formData.append('title', productFormData.title);
+      formData.append('price', productFormData.price);
+      formData.append('originalPrice', productFormData.originalPrice);
+      formData.append('description', productFormData.description);
+      formData.append('category', productFormData.category);
+      formData.append('brand', productFormData.brand || "651d72f84b14d81584889191");
+      formData.append('stock', productFormData.stock);
+      formData.append('arModels', JSON.stringify(formattedArModels));
+      formData.append('colors', JSON.stringify(productFormData.colors));
 
-      // Handle images properly
+      // Handle images
       if (productFormData.images && Array.isArray(productFormData.images)) {
-        // Filter out any null or undefined values
-        formData.images = productFormData.images.filter(img => img != null).map(img => {
-          // If the image is already an object with url and public_id, use it as is
-          if (img && typeof img === 'object' && img.url && img.public_id) {
-            return img;
+        // Add image count
+        formData.append('imagesCount', productFormData.images.length.toString());
+        
+        // Add each image's data
+        productFormData.images.forEach((img, index) => {
+          if (img && img.url && img.public_id) {
+            formData.append(`images[${index}][url]`, img.url);
+            formData.append(`images[${index}][public_id]`, img.public_id);
           }
-          // If it's a string URL, create an object with url and a placeholder public_id
-          if (typeof img === 'string') {
-            return {
-              url: img,
-              public_id: img.split('/').pop() // Use the filename as public_id
-            };
-          }
-          return null;
-        }).filter(img => img !== null); // Remove any null values
+        });
       }
 
-      console.log("Submitting form data:", formData);
+      console.log("Submitting form data:", Object.fromEntries(formData));
 
-      let response
+      let response;
       if (productFormData.id) {
         // Update existing product
-        response = await productService.updateProduct(productFormData.id, formData)
+        response = await productService.updateProduct(productFormData.id, formData);
 
         // Update product in state
         setProducts(products.map(product =>
           product._id === productFormData.id ? response : product
-        ))
+        ));
 
-        alert("Product updated successfully!")
+        alert("Product updated successfully!");
       } else {
         // Create new product
-        response = await productService.createProduct(formData)
+        response = await productService.createProduct(formData);
 
         // Add new product to state
-        setProducts([...products, response])
+        setProducts([...products, response]);
 
         // Update statistics
         setStatistics(prev => ({
           ...prev,
           totalProducts: prev.totalProducts + 1
-        }))
+        }));
 
-        alert("Product created successfully!")
+        alert("Product created successfully!");
       }
 
       // Close form
-      setShowProductForm(false)
+      setShowProductForm(false);
     } catch (error) {
-      console.error("Error submitting product:", error)
-      setErrorMessage(error.response?.data?.message || "Error saving product. Please try again.")
+      console.error("Error submitting product:", error);
+      setErrorMessage(error.response?.data?.message || "Error saving product. Please try again.");
     } finally {
-      setIsSubmitting(false)
+      setIsSubmitting(false);
     }
-  }
+  };
 
   const formatPrice = (price) => {
     return new Intl.NumberFormat("en-NP", {
@@ -1040,6 +1078,13 @@ const SellerDashboard = () => {
                   <p className="help-text">
                     You can upload up to 5 images. First image will be the main product image.
                   </p>
+                  
+                  {imageUploading && (
+                    <div className="upload-loading">
+                      <div className="loading-spinner"></div>
+                      <span>Uploading images...</span>
+                    </div>
+                  )}
 
                   {previewImages.length > 0 && (
                     <div className="image-previews">
@@ -1129,9 +1174,9 @@ const SellerDashboard = () => {
                     {modelErrors.ios && <p className="error-text">{modelErrors.ios}</p>}
                   </div>
                   
-                  {(modelPreviews.ios || productFormData.arIosUrl) && (
+                  {(modelPreviews.ios || productFormData.arModels.ios.url) && (
                     <ModelPreview 
-                      modelUrl={productFormData.arIosUrl || modelPreviews.ios} 
+                      modelUrl={productFormData.arModels.ios.url || modelPreviews.ios} 
                       modelType="usdz" 
                       showQRCode={true}
                     />
@@ -1140,7 +1185,7 @@ const SellerDashboard = () => {
                   <input
                     type="text"
                     name="arIosUrl"
-                    value={productFormData.arIosUrl || ''}
+                    value={productFormData.arModels.ios.url || ''}
                     onChange={handleProductFormChange}
                     placeholder="https://github.com/sanamxgit/models/model.usdz"
                   />
@@ -1163,9 +1208,9 @@ const SellerDashboard = () => {
                     {modelErrors.android && <p className="error-text">{modelErrors.android}</p>}
                   </div>
                   
-                  {(modelPreviews.android || productFormData.arAndroidUrl) && (
+                  {(modelPreviews.android || productFormData.arModels.android.url) && (
                     <ModelPreview 
-                      modelUrl={productFormData.arAndroidUrl || modelPreviews.android} 
+                      modelUrl={productFormData.arModels.android.url || modelPreviews.android} 
                       modelType="glb" 
                       showQRCode={true}
                     />
@@ -1174,7 +1219,7 @@ const SellerDashboard = () => {
                   <input
                     type="text"
                     name="arAndroidUrl"
-                    value={productFormData.arAndroidUrl || ''}
+                    value={productFormData.arModels.android.url || ''}
                     onChange={handleProductFormChange}
                     placeholder="https://github.com/sanamxgit/models/model.glb"
                   />
