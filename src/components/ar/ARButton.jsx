@@ -26,9 +26,9 @@ const ARButton = forwardRef(({ iosUrl, androidUrl, productName }, ref) => {
   const getIOSARLink = () => {
     if (!iosUrl) return '';
     
-    // For USDZ files, use our AR viewer HTML page
+    // For USDZ files, use the direct Cloudinary URL
     if (iosUrl.toLowerCase().endsWith('.usdz')) {
-      return `${window.location.origin}/ar-view.html?url=${encodeURIComponent(iosUrl)}`;
+      return iosUrl;
     }
 
     // For other file types, create an HTML page with rel="ar"

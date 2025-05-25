@@ -16,6 +16,7 @@ import AdminDashboard from "./pages/AdminDashboard"
 import ProfilePage from "./pages/ProfilePage"
 import OrderHistoryPage from "./pages/OrderHistoryPage"
 import CategoryPage from "./pages/CategoryPage"
+import SellerVerification from "./components/SellerVerification"
 import "./styles/App.css"
 
 function App() {
@@ -73,6 +74,14 @@ function App() {
                   element={
                     <RequireAuth>
                       <SellerDashboard />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/seller/verification"
+                  element={
+                    <RequireAuth>
+                      <SellerVerification />
                     </RequireAuth>
                   }
                 />

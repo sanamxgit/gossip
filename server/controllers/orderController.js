@@ -30,7 +30,7 @@ const createOrder = async (req, res) => {
       }
       
       // Check stock
-      if (product.stock < item.qty) {
+      if (product.stock < item.quantity) {
         return res.status(400).json({ 
           message: `Not enough stock for ${product.title}. Available: ${product.stock}` 
         });
@@ -42,13 +42,16 @@ const createOrder = async (req, res) => {
         seller: product.seller,
         price: product.price,
         name: product.title,
-        image: product.images[0] || '',
-        status: 'processing',
+        image: product.images[0]?.url || '',
+        status: 'Processing'
       });
       
       // Update product stock and sales count
-      product.stock -= item.qty;
-      product.salesCount += item.qty;
+      const newStock = Math.max(0, product.stock - item.quantity);
+      const newSalesCount = (product.salesCount || 0) + item.quantity;
+      
+      product.stock = newStock;
+      product.salesCount = newSalesCount;
       await product.save();
     }
 
@@ -149,7 +152,7 @@ const updateOrderToDelivered = async (req, res) => {
 // @access  Private
 const getMyOrders = async (req, res) => {
   try {
-    const pageSize = Number(req.query.pageSize) || 10;
+    const pageSize = Number(req.query.pageSize) || Number(req.query.limit) || 10;
     const page = Number(req.query.page) || 1;
     
     const count = await Order.countDocuments({ user: req.user._id });
@@ -278,17 +281,28 @@ const cancelOrder = async (req, res) => {
     if (order.isDelivered) {
       return res.status(400).json({ message: 'Cannot cancel delivered order' });
     }
+
+    // Check if order is already cancelled
+    if (order.status === 'Cancelled') {
+      return res.status(400).json({ message: 'Order is already cancelled' });
+    }
     
     // Update order status
-    order.status = 'cancelled';
+    order.status = 'Cancelled';
     order.cancellationReason = req.body.reason || 'No reason provided';
+    
+    // Add status update
+    order.statusUpdates.push({
+      status: 'Cancelled',
+      date: new Date(),
+      note: `Order cancelled by ${req.user.role === 'admin' ? 'admin' : 'customer'}. Reason: ${order.cancellationReason}`
+    });
     
     // Restore product stock
     for (const item of order.orderItems) {
       const product = await Product.findById(item.product);
       if (product) {
-        product.stock += item.qty;
-        product.salesCount -= item.qty;
+        product.stock += item.quantity;
         await product.save();
       }
     }

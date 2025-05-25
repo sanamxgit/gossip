@@ -5,32 +5,63 @@ const ARModelViewer = ({ iosUrl, androidUrl, productName }) => {
   const modelViewerRef = useRef(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [webXRSupported, setWebXRSupported] = useState(true);
   
   useEffect(() => {
-    // Load model-viewer script dynamically
-    const script = document.createElement('script');
-    script.src = 'https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js';
-    script.type = 'module';
-    document.body.appendChild(script);
-    
-    script.onload = () => {
+    // Check if WebXR is supported
+    if (!window.XRSystem && !navigator.xr) {
+      setWebXRSupported(false);
+      setError('WebXR is not supported in your browser');
       setIsLoading(false);
-    };
-    
-    script.onerror = () => {
-      setError('Failed to load model viewer');
-      setIsLoading(false);
-    };
-    
-    return () => {
-      document.body.removeChild(script);
-    };
-  }, []);
-  
+      return;
+    }
+
+    // Reset states when model URL changes
+    setIsLoading(true);
+    setError(null);
+      
+    // Add event listeners when the component mounts
+    const modelViewer = modelViewerRef.current;
+    if (modelViewer) {
+      const onProgress = (event) => {
+        if (event.detail.totalProgress === 1) {
+          setIsLoading(false);
+        }
+      };
+
+      modelViewer.addEventListener('progress', onProgress);
+      modelViewer.addEventListener('error', handleModelError);
+      modelViewer.addEventListener('load', handleModelLoad);
+
+      return () => {
+        modelViewer.removeEventListener('progress', onProgress);
+        modelViewer.removeEventListener('error', handleModelError);
+        modelViewer.removeEventListener('load', handleModelLoad);
+      };
+    }
+  }, [androidUrl]);
+
+  const handleModelLoad = () => {
+    setIsLoading(false);
+    setError(null);
+  };
+
+  const handleModelError = (event) => {
+    setIsLoading(false);
+    setError('Failed to load 3D model');
+    console.error('Model viewer error:', event);
+  };
+
   if (error) {
     return (
       <div className="ar-model-error">
         <p>{error}</p>
+        {!webXRSupported && (
+          <p className="browser-support-note">
+            Try using a WebXR-compatible browser like Chrome or Edge on Android, 
+            or Safari on iOS.
+          </p>
+        )}
       </div>
     );
   }

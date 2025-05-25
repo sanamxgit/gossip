@@ -39,9 +39,9 @@ const ModelPreview = ({ modelUrl, modelType, iosUrl, androidUrl }) => {
   const getARQuickLookUrl = (url) => {
     if (!url) return '';
     
-    // For USDZ files, use our AR viewer HTML page
+    // For USDZ files, use the direct Cloudinary URL
     if (url.toLowerCase().endsWith('.usdz')) {
-      return `${window.location.origin}/ar-view.html?url=${encodeURIComponent(url)}`;
+      return url;
     }
     
     // For other file types, use the standard AR Quick Look URL

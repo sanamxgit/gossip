@@ -4,14 +4,15 @@ const Category = require('../models/Category');
 const { protect, admin } = require('../middleware/authMiddleware');
 const { upload } = require('../middleware/uploadMiddleware');
 const { uploadToCloudinary } = require('../middleware/cloudinaryMiddleware');
+const cloudinary = require('cloudinary');
 
 // @route   GET /api/categories
 // @desc    Get all categories
 // @access  Public
 router.get('/', async (req, res) => {
   try {
-    const categories = await Category.find({ isActive: true }).sort('name');
-    res.json(categories);
+    const categories = await Category.find({}).populate('parent');
+    res.json({ categories });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -34,6 +35,20 @@ router.get('/tree', async (req, res) => {
   }
 });
 
+// @route   GET /api/categories/trending
+// @desc    Get trending categories
+// @access  Public
+router.get('/trending', async (req, res) => {
+  try {
+    const trendingCategories = await Category.find({ isTrending: true })
+      .populate('parent')
+      .sort('-productCount');
+    res.json({ categories: trendingCategories });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // @route   POST /api/categories
 // @desc    Create a category
 // @access  Private/Admin
@@ -41,25 +56,44 @@ router.post('/', protect, admin, upload.single('image'), async (req, res) => {
   try {
     const { name, description, parent } = req.body;
     
+    // Check if category with same name exists
+    const existingCategory = await Category.findOne({ name });
+    if (existingCategory) {
+      return res.status(400).json({ message: 'Category with this name already exists' });
+    }
+
     let image = {};
     if (req.file) {
-      const result = await uploadToCloudinary(req.file.path);
-      image = {
-        url: result.secure_url,
-        public_id: result.public_id
-      };
+      try {
+        const result = await uploadToCloudinary(req.file.path, {
+          folder: 'categories',
+          transformation: [
+            { width: 800, height: 800, crop: 'fill' },
+            { quality: 'auto:best' }
+          ]
+        });
+        image = {
+          url: result.secure_url,
+          public_id: result.public_id
+        };
+      } catch (uploadError) {
+        console.error('Error uploading to Cloudinary:', uploadError);
+        return res.status(400).json({ message: 'Error uploading image' });
+      }
     }
 
     const category = new Category({
       name,
       description,
       parent: parent || null,
-      image
+      image,
+      slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-')
     });
 
     const savedCategory = await category.save();
     res.status(201).json(savedCategory);
   } catch (error) {
+    console.error('Error creating category:', error);
     res.status(400).json({ message: error.message });
   }
 });
@@ -84,7 +118,7 @@ router.get('/:id', async (req, res) => {
 // @access  Private/Admin
 router.put('/:id', protect, admin, upload.single('image'), async (req, res) => {
   try {
-    const { name, description, parent, isActive } = req.body;
+    const { name, description, parent, isTrending } = req.body;
     const category = await Category.findById(req.params.id);
 
     if (!category) {
@@ -92,17 +126,34 @@ router.put('/:id', protect, admin, upload.single('image'), async (req, res) => {
     }
 
     if (req.file) {
-      const result = await uploadToCloudinary(req.file.path);
-      category.image = {
-        url: result.secure_url,
-        public_id: result.public_id
-      };
+      try {
+        // Delete old image from Cloudinary if exists
+        if (category.image && category.image.public_id) {
+          await cloudinary.uploader.destroy(category.image.public_id);
+        }
+
+        const result = await uploadToCloudinary(req.file.path, {
+          folder: 'categories',
+          transformation: [
+            { width: 800, height: 800, crop: 'fill' },
+            { quality: 'auto:best' }
+          ]
+        });
+        
+        category.image = {
+          url: result.secure_url,
+          public_id: result.public_id
+        };
+      } catch (uploadError) {
+        console.error('Error uploading to Cloudinary:', uploadError);
+        return res.status(400).json({ message: 'Error uploading image' });
+      }
     }
 
     category.name = name || category.name;
     category.description = description || category.description;
     category.parent = parent || category.parent;
-    category.isActive = isActive !== undefined ? isActive : category.isActive;
+    category.isTrending = isTrending !== undefined ? isTrending : category.isTrending;
 
     const updatedCategory = await category.save();
     res.json(updatedCategory);
@@ -117,15 +168,18 @@ router.put('/:id', protect, admin, upload.single('image'), async (req, res) => {
 router.delete('/:id', protect, admin, async (req, res) => {
   try {
     const category = await Category.findById(req.params.id);
+    
     if (!category) {
       return res.status(404).json({ message: 'Category not found' });
     }
 
-    // Instead of deleting, mark as inactive
-    category.isActive = false;
-    await category.save();
+    // Delete image from Cloudinary if exists
+    if (category.image && category.image.public_id) {
+      await cloudinary.uploader.destroy(category.image.public_id);
+    }
 
-    res.json({ message: 'Category deactivated successfully' });
+    await category.remove();
+    res.json({ message: 'Category removed' });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

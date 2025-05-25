@@ -12,6 +12,8 @@ import authService from '../services/api/authService'
 import modelUploadService from '../services/api/modelUploadService'
 import ModelPreview from '../components/ar/ModelPreview'
 import axios from 'axios'
+import OrderDetailsModal from '../components/OrderDetailsModal'
+import { formatPrice, formatDate } from '../utils/formatters'
 
 const SellerDashboard = () => {
   const { user, isAuthenticated, loading, logout } = useAuth()
@@ -47,6 +49,8 @@ const SellerDashboard = () => {
   const [previewImages, setPreviewImages] = useState([])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState("")
+  const [selectedOrder, setSelectedOrder] = useState(null)
+  const [showOrderModal, setShowOrderModal] = useState(false)
 
   // Handle 3D model upload
   const [modelFiles, setModelFiles] = useState({
@@ -88,75 +92,61 @@ const SellerDashboard = () => {
   }, [isAuthenticated, loading, user, navigate])
 
   const fetchSellerData = async () => {
-    setIsLoading(true)
+    setIsLoading(true);
     try {
       // Debug: Log authentication state
-      console.log("Auth status:", { isAuthenticated, user })
-      console.log("Token:", localStorage.getItem('token'))
+      console.log("Auth status:", { isAuthenticated, user });
+      console.log("Token:", localStorage.getItem('token'));
       
       // Check if user is authenticated and is a seller
-      const userData = await authService.getCurrentUser()
+      const userData = await authService.getCurrentUser();
       if (!userData || userData.role !== 'seller') {
-        throw new Error('Not authenticated as a seller')
+        throw new Error('Not authenticated as a seller');
       }
-      setUser(userData)
+      setUser(userData);
 
       // Debug: Log user data from API
-      console.log("Authenticated user data:", userData)
+      console.log("Authenticated user data:", userData);
       
-      // Fetch products - passing the user ID if available
+      // Fetch products
       const productsData = await productService.getSellerProducts({ 
         sellerId: userData._id 
-      })
-      setProducts(productsData.products || [])
+      });
+      setProducts(productsData.products || []);
 
-      // Fetch orders
-      let ordersData;
-      try {
-        ordersData = await orderService.getSellerOrders()
-        setOrders(ordersData.orders || [])
-      } catch (error) {
-        console.error("Error fetching orders:", error)
-        // Fallback to mock data if API is not available
-        setOrders(getMockOrders())
-      }
-
-      // Set statistics
-      setStatistics({
-        totalSales: productsData.products ? productsData.products.reduce((total, product) => total + (product.salesCount || 0), 0) : 0,
+      // Fetch orders from the database
+      const ordersData = await orderService.getSellerOrders();
+      if (ordersData && ordersData.orders) {
+        setOrders(ordersData.orders);
+        
+        // Calculate statistics from real order data
+        const stats = {
+          totalSales: 0,
         totalProducts: productsData.products ? productsData.products.length : 0,
-        pendingOrders: ordersData && ordersData.orders ? ordersData.orders.filter(order => order.status === 'PENDING').length : 0,
-        revenue: ordersData && ordersData.orders ? ordersData.orders.reduce((total, order) => total + (order.total || 0), 0) : 0
-      })
-    } catch (error) {
-      console.error("Error fetching seller data:", error)
-      // Use mock data if API fails
-      setUser({ name: "Seller Demo", email: "seller@example.com", sellerProfile: { storeName: "Demo Store" } })
-      setProducts([
-        { _id: "1", title: "Sample Product 1", price: 2999, stock: 10, images: ["/placeholder.svg"], category: { name: "Sample Category" } },
-        { _id: "2", title: "Sample Product 2", price: 4999, stock: 5, images: ["/placeholder.svg"], category: { name: "Sample Category" } }
-      ])
-      setOrders(getMockOrders())
-      setStatistics({
-        totalSales: 12,
-        totalProducts: 2,
-        pendingOrders: 3,
-        revenue: 125075
-      })
-    } finally {
-      setIsLoading(false)
-    }
-  }
+          pendingOrders: 0,
+          revenue: 0
+        };
 
-  const getMockOrders = () => {
-    return Array(5).fill().map((_, index) => ({
-      id: `order-${index + 1}`,
-      customer: `Customer ${index + 1}`,
-      date: new Date(Date.now() - Math.random() * 10000000000).toISOString(),
-      total: Math.floor(Math.random() * 10000) + 1000,
-      status: ['Pending', 'Processing', 'Shipped', 'Delivered'][Math.floor(Math.random() * 4)]
-    }))
-  }
+        ordersData.orders.forEach(order => {
+          if (order.isPaid) {
+            stats.totalSales++;
+            stats.revenue += order.sellerTotal || 0;
+          }
+          if (order.status === 'Pending') {
+            stats.pendingOrders++;
+          }
+        });
+
+        setStatistics(stats);
+      }
+    } catch (error) {
+      console.error("Error fetching seller data:", error);
+      // Show error message to user
+      setErrorMessage("Failed to load seller data. Please try again later.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleTabChange = (tab) => {
     setActiveTab(tab)
@@ -507,42 +497,73 @@ const SellerDashboard = () => {
   };
 
   const handleProductFormSubmit = async (e) => {
-    e.preventDefault()
-    setIsSubmitting(true)
-    setErrorMessage(null)
+    e.preventDefault();
+    setIsSubmitting(true);
+    setErrorMessage(null);
 
     try {
-      // Prepare the arModels data with proper structure
-      const arModels = productFormData.arModels || {};
-      
-      // Format arModels to make sure it has the correct structure
-      const formattedArModels = {
-        ios: arModels.ios || {},
-        android: arModels.android || {}
+      // Validate required fields
+      const requiredFields = {
+        title: productFormData.title?.trim(),
+        description: productFormData.description?.trim(),
+        category: productFormData.category?.trim(),
+        brand: productFormData.brand?.trim(),
+        price: productFormData.price,
+        stock: productFormData.stock
       };
-      
-      console.log("AR Models being submitted:", formattedArModels);
 
-      // Prepare the form data
+      // Check for empty required fields
+      const emptyFields = Object.entries(requiredFields)
+        .filter(([_, value]) => !value && value !== 0)
+        .map(([key]) => key);
+
+      if (emptyFields.length > 0) {
+        throw new Error(`Please fill in all required fields: ${emptyFields.join(', ')}`);
+      }
+
+      // Validate and parse numeric fields
+      const price = parseFloat(productFormData.price);
+      const stock = parseInt(productFormData.stock, 10);
+
+      if (isNaN(price) || price <= 0) {
+        throw new Error('Please enter a valid price greater than 0');
+      }
+      if (isNaN(stock) || stock < 0) {
+        throw new Error('Please enter a valid stock quantity (0 or greater)');
+      }
+
+      // Create FormData object
       const formData = new FormData();
       
-      // Add basic product information
-      formData.append('title', productFormData.title);
-      formData.append('price', productFormData.price);
-      formData.append('originalPrice', productFormData.originalPrice);
-      formData.append('description', productFormData.description);
-      formData.append('category', productFormData.category);
-      formData.append('brand', productFormData.brand || "651d72f84b14d81584889191");
-      formData.append('stock', productFormData.stock);
-      formData.append('arModels', JSON.stringify(formattedArModels));
-      formData.append('colors', JSON.stringify(productFormData.colors));
+      // Add basic product information with validated values
+      formData.append('title', requiredFields.title);
+      formData.append('description', requiredFields.description);
+      formData.append('price', price);
+      formData.append('category', requiredFields.category);
+      formData.append('brand', requiredFields.brand);
+      formData.append('stock', stock);
+
+      // Add optional fields if they exist
+      if (productFormData.originalPrice) {
+        const originalPrice = parseFloat(productFormData.originalPrice);
+        if (!isNaN(originalPrice) && originalPrice > 0) {
+          formData.append('originalPrice', originalPrice);
+        }
+      }
+
+      // Handle colors
+      if (productFormData.colors && productFormData.colors.length > 0) {
+        formData.append('colors', JSON.stringify(productFormData.colors));
+      }
+
+      // Handle AR models
+      if (productFormData.arModels) {
+        formData.append('arModels', JSON.stringify(productFormData.arModels));
+      }
 
       // Handle images
       if (productFormData.images && Array.isArray(productFormData.images)) {
-        // Add image count
         formData.append('imagesCount', productFormData.images.length.toString());
-        
-        // Add each image's data
         productFormData.images.forEach((img, index) => {
           if (img && img.url && img.public_id) {
             formData.append(`images[${index}][url]`, img.url);
@@ -557,26 +578,18 @@ const SellerDashboard = () => {
       if (productFormData.id) {
         // Update existing product
         response = await productService.updateProduct(productFormData.id, formData);
-
-        // Update product in state
         setProducts(products.map(product =>
           product._id === productFormData.id ? response : product
         ));
-
         alert("Product updated successfully!");
       } else {
         // Create new product
         response = await productService.createProduct(formData);
-
-        // Add new product to state
         setProducts([...products, response]);
-
-        // Update statistics
         setStatistics(prev => ({
           ...prev,
           totalProducts: prev.totalProducts + 1
         }));
-
         alert("Product created successfully!");
       }
 
@@ -584,27 +597,11 @@ const SellerDashboard = () => {
       setShowProductForm(false);
     } catch (error) {
       console.error("Error submitting product:", error);
-      setErrorMessage(error.response?.data?.message || "Error saving product. Please try again.");
+      setErrorMessage(error.message || error.response?.data?.message || "Error saving product. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
   };
-
-  const formatPrice = (price) => {
-    return new Intl.NumberFormat("en-NP", {
-      style: "currency",
-      currency: "NRs",
-      minimumFractionDigits: 2,
-    }).format(price)
-  }
-
-  const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    })
-  }
 
   const handleAddColor = () => {
     const newColors = [...productFormData.colors, { name: "", code: "#000000" }];
@@ -665,6 +662,124 @@ const SellerDashboard = () => {
     
     // Fall back to API URL + path
     return `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}${path}`;
+  };
+
+  const handleStatusChange = async (orderId, newStatus) => {
+    try {
+      setIsLoading(true);
+      await orderService.updateOrderStatus(orderId, newStatus);
+      
+      // Update orders in state
+      setOrders(orders.map(order => 
+        order._id === orderId 
+          ? { ...order, status: newStatus }
+          : order
+      ));
+
+      // If status is "Cancelled", handle the cancellation
+      if (newStatus === "Cancelled") {
+        await orderService.cancelOrder(orderId);
+        alert("Order has been cancelled successfully!");
+      } else {
+        alert(`Order status updated to ${newStatus}`);
+      }
+    } catch (error) {
+      console.error("Error updating order status:", error);
+      alert("Failed to update order status. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleViewOrder = (order) => {
+    setSelectedOrder(order);
+    setShowOrderModal(true);
+  };
+
+  const renderOrders = () => {
+    return (
+      <div className="orders-section">
+        <h2>Orders Management</h2>
+        <div className="orders-table-container">
+          <table className="orders-table">
+            <thead>
+              <tr>
+                <th>Order ID</th>
+                <th>Date</th>
+                <th>Customer</th>
+                <th>Products</th>
+                <th>Total</th>
+                <th>Payment Status</th>
+                <th>Order Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {orders.map((order) => (
+                <tr key={order._id}>
+                  <td>{order._id}</td>
+                  <td>{formatDate(order.createdAt)}</td>
+                  <td>{order.user.username}</td>
+                  <td>
+                    <div className="order-products">
+                      {order.orderItems.map((item, index) => (
+                        <div key={index} className="order-product-item">
+                          <img 
+                            src={item.image} 
+                            alt={item.name} 
+                            className="product-thumbnail"
+                          />
+                          <div className="product-info">
+                            <span className="product-name">{item.name}</span>
+                            <span className="product-quantity">x{item.quantity}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </td>
+                  <td>{formatPrice(order.totalPrice)}</td>
+                  <td>
+                    <span className={`payment-status ${order.isPaid ? 'paid' : 'unpaid'}`}>
+                      {order.isPaid ? 'Paid' : 'Unpaid'}
+                    </span>
+                  </td>
+                  <td>
+                    <select
+                      value={order.status}
+                      onChange={(e) => handleStatusChange(order._id, e.target.value)}
+                      className={`status-select ${order.status.toLowerCase()}`}
+                    >
+                      <option value="Pending">Pending</option>
+                      <option value="Confirmed">Confirmed</option>
+                      <option value="Packed">Packed</option>
+                      <option value="Ready to Dispatch">Ready to Dispatch</option>
+                      <option value="Dispatched">Dispatched</option>
+                      <option value="Delivered">Delivered</option>
+                      <option value="Cancelled">Cancelled</option>
+                    </select>
+                  </td>
+                  <td>
+                    <button
+                      className="view-order-btn"
+                      onClick={() => handleViewOrder(order)}
+                    >
+                      <FaEye />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {showOrderModal && selectedOrder && (
+          <OrderDetailsModal
+            order={selectedOrder}
+            onClose={() => setShowOrderModal(false)}
+            onStatusChange={handleStatusChange}
+          />
+        )}
+      </div>
+    );
   };
 
   if (loading || isLoading) {
@@ -758,16 +873,21 @@ const SellerDashboard = () => {
                   <button className="btn-text" onClick={() => setActiveTab("orders")}>View All</button>
                 </div>
                 <div className="recent-orders">
+                  <h3>Recent Orders</h3>
                   {orders.slice(0, 3).map(order => (
-                    <div key={order.id} className="order-item">
-                      <div className="order-info">
-                        <div className="order-id">{order.id}</div>
-                        <div className="order-customer">{order.customer}</div>
+                    <div key={order._id} className="order-item">
+                      <div className="order-header">
+                        <span className="order-id">#{order._id}</span>
+                        <span className="order-date">{formatDate(order.createdAt)}</span>
                       </div>
                       <div className="order-details">
-                        <div className="order-date">{formatDate(order.date)}</div>
-                        <div className="order-amount">{formatPrice(order.total)}</div>
-                        <div className={`order-status ${order.status.toLowerCase()}`}>{order.status}</div>
+                        <div className="customer-info">
+                          <p>Customer: {order.user.username}</p>
+                          <p>Status: <span className={`status ${order.status}`}>{order.status}</span></p>
+                        </div>
+                        <div className="order-total">
+                          <p>Total: {formatPrice(order.totalAmount)}</p>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -875,52 +995,7 @@ const SellerDashboard = () => {
           </div>
         )}
 
-        {activeTab === "orders" && (
-          <div className="dashboard-orders">
-            <h1>Orders</h1>
-
-            {orders.length === 0 ? (
-              <div className="empty-state">
-                <h2>No orders yet</h2>
-                <p>Orders will appear here when customers make purchases.</p>
-              </div>
-            ) : (
-              <div className="orders-table">
-                <div className="table-header">
-                  <div className="col-id">Order ID</div>
-                  <div className="col-customer">Customer</div>
-                  <div className="col-date">Date</div>
-                  <div className="col-total">Total</div>
-                  <div className="col-status">Status</div>
-                  <div className="col-actions">Actions</div>
-                </div>
-
-                {orders.map(order => (
-                  <div key={order.id} className="table-row">
-                    <div className="col-id">{order.id}</div>
-                    <div className="col-customer">{order.customer}</div>
-                    <div className="col-date">{formatDate(order.date)}</div>
-                    <div className="col-total">{formatPrice(order.total)}</div>
-                    <div className="col-status">
-                      <span className={`status-badge ${order.status.toLowerCase()}`}>
-                        {order.status}
-                      </span>
-                    </div>
-                    <div className="col-actions">
-                      <Link
-                        to={`/seller/orders/${order.id}`}
-                        className="btn-icon"
-                        title="View Order"
-                      >
-                        <FaEye />
-                      </Link>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+        {activeTab === "orders" && renderOrders()}
 
         {activeTab === "settings" && (
           <div className="dashboard-settings">
@@ -1251,6 +1326,16 @@ const SellerDashboard = () => {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {!user?.sellerProfile?.isBrandVerified && (
+        <div className="verification-notice">
+          <h3>Brand Verification Required</h3>
+          <p>Please verify your brand to access all seller features.</p>
+          <Link to="/seller/verification" className="verify-button">
+            Verify Brand
+          </Link>
         </div>
       )}
     </div>

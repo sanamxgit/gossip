@@ -26,7 +26,7 @@ const CartPage = () => {
       navigate("/login", { state: { from: "/checkout" } });
       return;
     }
-    navigate("/checkout", { replace: true });
+    navigate("/checkout");
     setIsCheckingOut(false);
   };
 

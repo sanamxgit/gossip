@@ -11,11 +11,14 @@ const upload = multer({
         fileSize: 10 * 1024 * 1024, // 10MB limit
     },
     fileFilter: (req, file, cb) => {
-        // Accept images and videos
-        if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/')) {
+        // Accept images and documents
+        if (file.mimetype.startsWith('image/') || 
+            file.mimetype === 'application/pdf' ||
+            file.mimetype === 'application/msword' ||
+            file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
             cb(null, true);
         } else {
-            cb(new Error('Only image and video files are allowed!'), false);
+            cb(new Error('Only image and document files are allowed!'), false);
         }
     }
 });
@@ -23,25 +26,35 @@ const upload = multer({
 // Helper function to upload to Cloudinary
 const uploadToCloudinary = async (file, folder = 'products') => {
     try {
-        // Convert buffer to base64
-        const fileStr = file.buffer.toString('base64');
-        const fileType = file.mimetype.startsWith('video/') ? 'video' : 'image';
-
-        // Upload to Cloudinary
-        const result = await cloudinary.uploader.upload(
-            `data:${file.mimetype};base64,${fileStr}`,
-            {
+        let uploadResult;
+        
+        if (file.buffer) {
+            // Handle buffer upload (from memory storage)
+            const fileStr = file.buffer.toString('base64');
+            uploadResult = await cloudinary.uploader.upload(
+                `data:${file.mimetype};base64,${fileStr}`,
+                {
+                    folder: folder,
+                    resource_type: 'auto'
+                }
+            );
+        } else if (file.path) {
+            // Handle path-based upload (from disk storage)
+            uploadResult = await cloudinary.uploader.upload(file.path, {
                 folder: folder,
-                resource_type: fileType,
-            }
-        );
+                resource_type: 'auto'
+            });
+        } else {
+            throw new Error('Invalid file format: neither buffer nor path provided');
+        }
 
         return {
-            url: result.secure_url,
-            public_id: result.public_id,
-            resource_type: result.resource_type
+            url: uploadResult.secure_url,
+            public_id: uploadResult.public_id,
+            resource_type: uploadResult.resource_type
         };
     } catch (error) {
+        console.error('Cloudinary upload error:', error);
         throw new Error(`Failed to upload file to Cloudinary: ${error.message}`);
     }
 };

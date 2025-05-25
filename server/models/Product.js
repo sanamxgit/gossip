@@ -1,5 +1,69 @@
 const mongoose = require('mongoose');
 
+const reviewSchema = new mongoose.Schema({
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  name: {
+    type: String,
+    required: true
+  },
+  rating: {
+    type: Number,
+    required: true,
+    min: 1,
+    max: 5
+  },
+  comment: {
+    type: String,
+    required: true
+  },
+  photos: [{
+    url: {
+      type: String,
+      required: true
+    },
+    public_id: {
+      type: String,
+      required: true
+    }
+  }],
+  createdAt: {
+    type: Date,
+    default: Date.now
+  },
+  updatedAt: {
+    type: Date,
+    default: Date.now
+  },
+  orderId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Order',
+    required: true
+  },
+  helpful: {
+    type: Number,
+    default: 0
+  },
+  verified: {
+    type: Boolean,
+    default: false
+  },
+  sellerReply: {
+    comment: String,
+    createdAt: {
+      type: Date,
+      default: Date.now
+    },
+    updatedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }
+});
+
 const productSchema = new mongoose.Schema({
   title: {
     type: String,
@@ -19,6 +83,12 @@ const productSchema = new mongoose.Schema({
     type: Number,
     min: [0, 'Original price must be positive']
   },
+  discountPercentage: {
+    type: Number,
+    default: 0,
+    min: 0,
+    max: 100
+  },
   stock: {
     type: Number,
     required: [true, 'Stock quantity is required'],
@@ -29,31 +99,28 @@ const productSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
-  images: [
-    {
-      url: {
-        type: String,
-        required: true
-      },
-      public_id: {
-        type: String,
-        required: true
-      }
+  salesCount: {
+    type: Number,
+    default: 0
+  },
+  images: [{
+    url: {
+      type: String,
+      required: true
+    },
+    public_id: {
+      type: String,
+      required: true
     }
-  ],
-  colors: [
-    {
-      name: {
-        type: String
-      },
-      code: {
-        type: String
-      },
-      image: {
-        type: String
-      }
-    }
-  ],
+  }],
+  colors: [{
+    name: String,
+    code: {
+      type: String,
+      required: true
+    },
+    image: String
+  }],
   category: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Category',
@@ -77,28 +144,14 @@ const productSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
-  reviews: [
-    {
-      userId: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User'
-      },
-      name: String,
-      rating: Number,
-      comment: String,
-      createdAt: {
-        type: Date,
-        default: Date.now
-      }
-    }
-  ],
+  reviews: [reviewSchema],
   isFeatured: {
     type: Boolean,
     default: false
   },
   specifications: {
-    type: Object,
-    default: {}
+    type: Array,
+    default: []
   },
   arModels: {
     ios: {
@@ -142,8 +195,23 @@ productSchema.virtual('discountPercentage').get(function() {
   return 0;
 });
 
+// Calculate average rating when reviews are modified
+productSchema.pre('save', function(next) {
+  if (this.reviews.length > 0) {
+    this.rating = this.reviews.reduce((acc, item) => item.rating + acc, 0) / this.reviews.length;
+    this.numReviews = this.reviews.length;
+  } else {
+    this.rating = 0;
+    this.numReviews = 0;
+  }
+  next();
+});
+
 // Index for faster searches
 productSchema.index({ title: 'text', description: 'text' });
+productSchema.index({ category: 1, brand: 1 });
+productSchema.index({ seller: 1 });
+productSchema.index({ rating: -1 });
 
 const Product = mongoose.model('Product', productSchema);
 

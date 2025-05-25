@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Link, useNavigate } from "react-router-dom"
+import { Link, useNavigate, useLocation } from "react-router-dom"
 import { useAuth } from "../contexts/AuthContext"
 import "./AuthPages.css"
 
@@ -12,6 +12,7 @@ const LoginPage = () => {
   const [isLoading, setIsLoading] = useState(false)
   const { login } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -26,7 +27,9 @@ const LoginPage = () => {
 
     try {
       await login(email, password)
-      navigate("/")
+      // Navigate to the original location or home page
+      const from = location.state?.from || "/"
+      navigate(from, { replace: true })
     } catch (error) {
       setError(error.message || "Failed to login. Please check your credentials.")
     } finally {

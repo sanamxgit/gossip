@@ -5,6 +5,7 @@ import ARButton from '../ar/ARButton';
 import ErrorBoundary from '../common/ErrorBoundary';
 import { UPLOAD_URL, API_URL } from '../../config';
 import './ProductCard.css';
+import { formatPrice } from '../../utils/formatters';
 
 const ProductCard = ({ product }) => {
   const { addToCart } = useCart();
@@ -51,14 +52,6 @@ const ProductCard = ({ product }) => {
     
     // Fall back to API URL + path
     return `${API_URL}${path}`;
-  };
-  
-  const formatPrice = (price) => {
-    return new Intl.NumberFormat("en-NP", {
-      style: "currency",
-      currency: "NRs",
-      minimumFractionDigits: 2,
-    }).format(price);
   };
   
   const calculateDiscount = () => {
@@ -133,6 +126,21 @@ const ProductCard = ({ product }) => {
       <div className="product-card-content">
         <h3 className="product-card-title">{product.title || product.name}</h3>
         <div className="product-card-meta">
+          {product.rating > 0 && (
+            <div className="product-rating">
+              <div className="rating-stars">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <span
+                    key={star}
+                    className={`star ${star <= product.rating ? 'filled' : ''}`}
+                  >
+                    ★
+                  </span>
+                ))}
+              </div>
+              <span className="rating-count">({product.numReviews})</span>
+            </div>
+          )}
           {product.sold > 0 && (
             <div className="product-sold">{product.sold} sold</div>
           )}
@@ -154,9 +162,9 @@ const ProductCard = ({ product }) => {
           </div>
         )}
         
-        <div className="product-card-price">
-          <span className="price">{formatPrice(product.price)}</span>
-          {product.originalPrice > product.price && (
+        <div className="product-price">
+          {formatPrice(product.price)}
+          {product.originalPrice && product.originalPrice > product.price && (
             <span className="original-price">{formatPrice(product.originalPrice)}</span>
           )}
         </div>

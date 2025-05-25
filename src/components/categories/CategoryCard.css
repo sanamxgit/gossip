@@ -5,13 +5,15 @@
 .category-card {
   display: block;
   position: relative;
-  border-radius: 8px;
+  border-radius: 12px;
   overflow: hidden;
   width: 100%;
-  height: 400px;
+  height: 450px; /* Increased height */
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
   transition: transform 0.3s ease, box-shadow 0.3s ease;
   text-decoration: none;
+  margin: 0 auto; /* Center align */
+  max-width: 400px; /* Maximum width */
 }
 
 .category-card:hover {
@@ -23,6 +25,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center; /* Center the image */
   transition: transform 0.5s ease;
 }
 
@@ -56,19 +59,22 @@
 /* Responsive styles */
 @media (max-width: 1200px) {
   .category-card {
-    height: 350px;
+    height: 400px;
+    max-width: 350px;
   }
 }
 
 @media (max-width: 992px) {
   .category-card {
-    height: 330px;
+    height: 380px;
+    max-width: 320px;
   }
 }
 
 @media (max-width: 768px) {
   .category-card {
-    height: 300px;
+    height: 350px;
+    max-width: 300px;
   }
 
   .category-card-title {
@@ -82,7 +88,8 @@
 
 @media (max-width: 576px) {
   .category-card {
-    height: 400px;
+    height: 450px;
+    max-width: 100%;
   }
 }
   

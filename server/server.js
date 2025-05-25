@@ -138,6 +138,7 @@ const adminRoutes = require('./routes/adminRoutes');
 const modelRoutes = require('./routes/modelRoutes');
 const homeSectionRoutes = require('./routes/homeSectionRoutes');
 const homepageSectionRoutes = require('./routes/homepageSectionRoutes');
+const brandVerificationRoutes = require('./routes/brandVerificationRoutes');
 
 // Basic route
 app.get('/', (req, res) => {
@@ -161,6 +162,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/models', modelRoutes);
 app.use('/api/home-sections', homeSectionRoutes);
 app.use('/api/homepage/sections', homepageSectionRoutes);
+app.use('/api/brand-verification', brandVerificationRoutes);
 
 // Error handling middleware
 app.use(notFound);

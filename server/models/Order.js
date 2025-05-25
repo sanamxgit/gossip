@@ -71,20 +71,24 @@ const orderSchema = new mongoose.Schema({
   status: {
     type: String,
     required: true,
-    enum: ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled'],
+    enum: ['Pending', 'Confirmed', 'Processing', 'Shipped', 'Delivered', 'Cancelled'],
     default: 'Pending'
   },
   statusUpdates: [
     {
       status: {
         type: String,
-        enum: ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled']
+        enum: ['Pending', 'Confirmed', 'Processing', 'Shipped', 'Delivered', 'Cancelled']
       },
       date: {
         type: Date,
         default: Date.now
       },
-      note: String
+      note: String,
+      updatedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+      }
     }
   ],
   isDelivered: {
@@ -95,12 +99,37 @@ const orderSchema = new mongoose.Schema({
   deliveredAt: {
     type: Date
   },
+  reviewed: {
+    type: Boolean,
+    default: false
+  },
+  cancellationReason: {
+    type: String,
+    trim: true
+  },
   createdAt: {
     type: Date,
     default: Date.now
   }
 }, {
   timestamps: true
+});
+
+// Add index for faster queries
+orderSchema.index({ user: 1, createdAt: -1 });
+orderSchema.index({ seller: 1, createdAt: -1 });
+orderSchema.index({ status: 1 });
+
+// Pre-save middleware to update statusUpdates
+orderSchema.pre('save', function(next) {
+  if (this.isModified('status')) {
+    this.statusUpdates.push({
+      status: this.status,
+      date: new Date(),
+      updatedBy: this.updatedBy || this.user
+    });
+  }
+  next();
 });
 
 // Virtual for order tracking

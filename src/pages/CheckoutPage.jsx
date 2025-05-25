@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCart } from '../contexts/CartContext';
 import { useAuth } from '../contexts/AuthContext';
+import orderService from '../services/api/orderService';
 import './CheckoutPage.css';
 
 function CheckoutPage() {
@@ -26,6 +27,7 @@ function CheckoutPage() {
     postalCode: '',
   });
   const [showNewAddressForm, setShowNewAddressForm] = useState(false);
+  const [systemSettings, setSystemSettings] = useState({ taxRate: 10 }); // Default to 10%
 
   useEffect(() => {
     if (!user) {
@@ -33,9 +35,10 @@ function CheckoutPage() {
       return;
     }
 
-    // Load saved addresses
-    const loadSavedAddresses = async () => {
+    // Load saved addresses and system settings
+    const loadInitialData = async () => {
       try {
+        // Load addresses
         const addresses = JSON.parse(localStorage.getItem(`addresses_${user._id}`)) || [];
         setSavedAddresses(addresses);
         if (addresses.length > 0) {
@@ -43,12 +46,29 @@ function CheckoutPage() {
         } else {
           setShowNewAddressForm(true);
         }
+
+        // Load system settings
+        try {
+          const response = await fetch('/api/settings');
+          if (!response.ok) {
+            throw new Error('Failed to fetch system settings');
+          }
+          const settings = await response.json();
+          setSystemSettings(settings);
+        } catch (error) {
+          console.error('Error loading system settings:', error);
+          // Use default settings if API call fails
+          setSystemSettings({ taxRate: 10 });
+        }
       } catch (error) {
-        console.error('Error loading addresses:', error);
+        console.error('Error loading initial data:', error);
+        setSavedAddresses([]);
+        setShowNewAddressForm(true);
+        setSystemSettings({ taxRate: 10 });
       }
     };
 
-    loadSavedAddresses();
+    loadInitialData();
   }, [user, navigate]);
 
   const handleNewAddressSubmit = (e) => {
@@ -109,6 +129,9 @@ function CheckoutPage() {
     try {
       // Group items by seller
       const itemsBySeller = cartItems.reduce((acc, item) => {
+        if (!item || !item.sellerId) {
+          throw new Error('Invalid item data: Missing seller information');
+        }
         const sellerId = item.sellerId;
         if (!acc[sellerId]) {
           acc[sellerId] = [];
@@ -117,36 +140,118 @@ function CheckoutPage() {
         return acc;
       }, {});
 
+      // Validate cart items before proceeding
+      if (Object.keys(itemsBySeller).length === 0) {
+        throw new Error('No valid items in cart');
+      }
+
       // Create separate orders for each seller
-      const orders = Object.entries(itemsBySeller).map(([sellerId, items]) => ({
-        items,
-        shippingAddress: selectedAddress,
-        paymentMethod,
-        totalAmount: items.reduce((total, item) => total + item.price * item.quantity, 0) * 1.1,
-        status: 'pending',
-        userId: user._id,
-        sellerId,
-        orderDate: new Date().toISOString(),
-        paymentStatus: paymentMethod === 'cod' ? 'pending' : 'paid',
-      }));
+      const orderPromises = Object.entries(itemsBySeller).map(async ([sellerId, items]) => {
+        try {
+          const itemsPrice = items.reduce((total, item) => {
+            const price = parseFloat(item.price);
+            const quantity = parseInt(item.quantity, 10);
+            if (isNaN(price) || isNaN(quantity)) {
+              throw new Error(`Invalid price or quantity for item: ${item.name || item.title}`);
+            }
+            return total + price * quantity;
+          }, 0);
 
-      // Save orders to localStorage for demo
-      const existingOrders = JSON.parse(localStorage.getItem('orders') || '[]');
-      const newOrders = orders.map(order => ({ ...order, id: Date.now() + Math.random() }));
-      localStorage.setItem('orders', JSON.stringify([...existingOrders, ...newOrders]));
+          const taxRate = systemSettings.taxRate || 10;
+          const taxPrice = Number((itemsPrice * (taxRate / 100)).toFixed(2));
+          const shippingPrice = systemSettings.shippingFee || 0;
+          const totalPrice = itemsPrice + taxPrice + shippingPrice;
 
-      // Save seller-specific orders
-      orders.forEach(order => {
-        const sellerOrders = JSON.parse(localStorage.getItem(`orders_${order.sellerId}`) || '[]');
-        sellerOrders.push({ ...order, id: Date.now() + Math.random() });
-        localStorage.setItem(`orders_${order.sellerId}`, JSON.stringify(sellerOrders));
+          const orderData = {
+            orderItems: items.map(item => {
+              // Ensure proper type conversion and validation
+              const quantity = parseInt(item.quantity, 10);
+              const price = parseFloat(item.price);
+              
+              if (isNaN(quantity) || quantity <= 0) {
+                throw new Error(`Invalid quantity for item: ${item.name || item.title}`);
+              }
+              
+              if (isNaN(price) || price <= 0) {
+                throw new Error(`Invalid price for item: ${item.name || item.title}`);
+              }
+              
+              return {
+                product: item._id,
+                quantity: quantity,
+                price: price,
+                seller: sellerId,
+                name: item.name || item.title,
+                image: item.image || (item.images && item.images[0]) || '/placeholder.svg'
+              };
+            }),
+            shippingAddress: {
+              address: selectedAddress.address,
+              city: selectedAddress.city,
+              postalCode: selectedAddress.postalCode,
+              country: 'Nepal'
+            },
+            paymentMethod,
+            itemsPrice,
+            taxPrice,
+            shippingPrice,
+            totalPrice,
+            status: 'Pending'
+          };
+
+          try {
+            console.log('Sending order data:', orderData);
+            if (!orderData.orderItems || orderData.orderItems.length === 0) {
+              throw new Error('No items in order');
+            }
+            if (!orderData.shippingAddress.address || !orderData.shippingAddress.city || !orderData.shippingAddress.postalCode) {
+              throw new Error('Shipping address is incomplete');
+            }
+            if (!orderData.paymentMethod) {
+              throw new Error('Payment method is required');
+            }
+            
+            const createdOrder = await orderService.createOrder(orderData);
+            console.log('Created order:', createdOrder);
+            
+            if (paymentMethod === 'esewa' && createdOrder._id) {
+              await orderService.updateOrderToPaid(createdOrder._id, {
+                id: Date.now().toString(),
+                status: 'COMPLETED',
+                update_time: new Date().toISOString(),
+                payer: { email_address: user.email }
+              });
+            }
+
+            return createdOrder;
+          } catch (error) {
+            console.error('Error creating order:', error);
+            throw error;
+          }
+        } catch (error) {
+          console.error('Error processing order:', error);
+          throw error;
+        }
       });
 
+      const createdOrders = await Promise.all(orderPromises);
+      console.log('All orders created successfully:', createdOrders);
+
+      // Clear cart and redirect to success page
       clearCart();
       navigate('/order-success');
     } catch (error) {
       console.error('Error processing order:', error);
-      alert('Failed to process order. Please try again.');
+      let errorMessage = 'Failed to process order. Please try again.';
+      
+      // Handle specific error messages
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      alert(errorMessage);
     } finally {
       setIsProcessing(false);
     }

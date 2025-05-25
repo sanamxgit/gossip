@@ -1,18 +1,22 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useParams } from "react-router-dom"
+import { useParams, useNavigate } from "react-router-dom"
 import { useCart } from "../contexts/CartContext"
 import ARButton from "../components/ar/ARButton"
 import ModelPreview from "../components/ar/ModelPreview"
 import ProductCard from "../components/products/ProductCard"
 import ErrorBoundary from "../components/common/ErrorBoundary"
 import productService from "../services/api/productService"
+import orderService from "../services/api/orderService"
+import { useAuth } from "../contexts/AuthContext"
 import "./ProductPage.css"
 
 const ProductPage = () => {
   const { id } = useParams()
   const { addToCart } = useCart()
+  const navigate = useNavigate()
+  const { user } = useAuth()
   const [product, setProduct] = useState(null)
   const [quantity, setQuantity] = useState(1)
   const [loading, setLoading] = useState(true)
@@ -21,6 +25,11 @@ const ProductPage = () => {
   const [selectedColor, setSelectedColor] = useState(null)
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [showQR, setShowQR] = useState(false);
+  const [reviews, setReviews] = useState([])
+  const [reviewsLoading, setReviewsLoading] = useState(true)
+  const [relatedLoading, setRelatedLoading] = useState(true)
+  const [replyingTo, setReplyingTo] = useState(null)
+  const [replyText, setReplyText] = useState('')
 
   useEffect(() => {
     // Reset state when product ID changes
@@ -29,38 +38,47 @@ const ProductPage = () => {
     setProduct(null)
     setRelatedProducts([])
     
-    const fetchProductData = async () => {
+    const fetchData = async () => {
       try {
-        console.log("Fetching product with ID:", id)
-        const productData = await productService.getProductById(id)
-        console.log("Product data received:", productData)
-        setProduct(productData)
+        // First get the product data
+        const productData = await productService.getProductById(id);
+        setProduct(productData);
         
         // Set default selected color if colors are available
         if (productData.colors && productData.colors.length > 0) {
           setSelectedColor(productData.colors[0])
         }
         
-        // Fetch related products
-        try {
-          const relatedData = await productService.getRelatedProducts(id)
-          console.log("Related products:", relatedData)
-          setRelatedProducts(relatedData.products || relatedData || [])
-        } catch (relatedError) {
-          console.error("Error fetching related products:", relatedError)
-          // Just set empty array for related products and don't block the main product display
-          setRelatedProducts([])
+        // Set reviews from product data
+        setReviews(productData.reviews || []);
+        setReviewsLoading(false);
+        
+        // Fetch related products from same brand
+        if (productData.brand) {
+          try {
+            const relatedData = await productService.getProducts({
+              brand: productData.brand._id,
+              limit: 4,
+              exclude: id
+            });
+            setRelatedProducts(relatedData.products || []);
+          } catch (relatedErr) {
+            console.log("Could not fetch related products:", relatedErr);
+            setRelatedProducts([]);
+          }
         }
       } catch (err) {
-        console.error("Error fetching product:", err)
-        setError("Failed to load product. Please try again later.")
+        console.error("Error fetching data:", err);
+        setError("Failed to load product data");
       } finally {
-        setLoading(false)
+        setLoading(false);
+        setReviewsLoading(false);
+        setRelatedLoading(false);
       }
-    }
+    };
 
     if (id) {
-      fetchProductData()
+      fetchData();
     }
   }, [id])
 
@@ -92,13 +110,34 @@ const ProductPage = () => {
     }
   }
 
+  const handleBuyNow = () => {
+    if (product) {
+      // Add to cart first
+      addToCart({
+        ...product,
+        selectedColor: selectedColor
+      }, quantity);
+      
+      // Navigate to checkout
+      navigate('/checkout');
+    }
+  };
+
   const formatPrice = (price) => {
-    return new Intl.NumberFormat("en-NP", {
-      style: "currency",
-      currency: "NRs",
-      minimumFractionDigits: 2,
-    }).format(price)
-  }
+    if (!price) return 'NRs. 0.00';
+    
+    try {
+      return new Intl.NumberFormat('ne-NP', {
+        style: 'currency',
+        currency: 'NPR',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      }).format(price);
+    } catch (error) {
+      console.error('Error formatting price:', error);
+      return `NRs. ${parseFloat(price).toFixed(2)}`;
+    }
+  };
   
   // This is a placeholder function for demo colors if product doesn't have them
   const getProductColors = () => {
@@ -183,6 +222,28 @@ const ProductPage = () => {
     }
     return null;
   };
+
+  const handleReplySubmit = async (reviewId) => {
+    try {
+      await productService.addReviewReply(product._id, reviewId, {
+        comment: replyText
+      });
+      
+      // Refresh product data to get updated reviews
+      const updatedProduct = await productService.getProductById(id);
+      setProduct(updatedProduct);
+      setReviews(updatedProduct.reviews || []);
+      
+      // Reset reply state
+      setReplyingTo(null);
+      setReplyText('');
+    } catch (error) {
+      console.error('Error submitting reply:', error);
+      alert('Failed to submit reply');
+    }
+  };
+
+  const isProductSeller = user && product && user._id === product.seller._id;
 
   if (loading) {
     return (
@@ -326,6 +387,14 @@ const ProductPage = () => {
               <p>{product.description}</p>
             </div>
             
+            {/* Stock Display */}
+            <div className="product-stock">
+              <h4>Stock</h4>
+              <p className={`stock-status ${product.stock > 0 ? 'in-stock' : 'out-of-stock'}`}>
+                {product.stock > 0 ? `${product.stock} units available` : 'Out of stock'}
+              </p>
+            </div>
+            
             {/* Color Options */}
             <div className="product-colors">
               <h4>Colors</h4>
@@ -358,7 +427,7 @@ const ProductPage = () => {
                 Add to Cart
               </button>
 
-              <button className="buy-now-btn" type="button">
+              <button className="buy-now-btn" onClick={handleBuyNow} type="button">
                 Buy Now
               </button>
 
@@ -382,6 +451,150 @@ const ProductPage = () => {
               ))}
             </div>
           </div>
+        </div>
+
+        {/* Reviews Section */}
+        <div className="product-reviews-section">
+          <h2>Customer Reviews</h2>
+          <div className="reviews-summary">
+            <div className="average-rating">
+              <div className="rating-number">{product?.rating?.toFixed(1) || 0}</div>
+              <div className="rating-stars">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <span
+                    key={star}
+                    className={`star ${star <= (product?.rating || 0) ? 'filled' : ''}`}
+                  >
+                    ★
+                  </span>
+                ))}
+              </div>
+              <div className="total-reviews">Based on {product?.numReviews || 0} reviews</div>
+            </div>
+          </div>
+
+          <div className="reviews-list">
+            {reviewsLoading ? (
+              <div className="loading-spinner"></div>
+            ) : reviews.length > 0 ? (
+              reviews.map((review) => (
+                <div key={review._id} className="review-card">
+                  <div className="review-header">
+                    <div className="reviewer-info">
+                      <h4>{review.name}</h4>
+                      <div className="review-date">
+                        {new Date(review.createdAt).toLocaleDateString()}
+                      </div>
+                    </div>
+                    <div className="review-rating">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <span
+                          key={star}
+                          className={`star ${star <= review.rating ? 'filled' : ''}`}
+                        >
+                          ★
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="review-content">
+                    <p>{review.comment}</p>
+                  </div>
+                  {review.photos && review.photos.length > 0 && (
+                    <div className="review-photos">
+                      {review.photos.map((photo, index) => (
+                        <img
+                          key={index}
+                          src={photo.url}
+                          alt={`Review photo ${index + 1}`}
+                          className="review-photo"
+                        />
+                      ))}
+                    </div>
+                  )}
+                  {review.verified && (
+                    <div className="verified-purchase">
+                      <span className="verified-badge">✓ Verified Purchase</span>
+                    </div>
+                  )}
+                  
+                  {/* Seller Reply Section */}
+                  {review.sellerReply && (
+                    <div className="seller-reply">
+                      <div className="seller-reply-header">
+                        <h5>Seller's Response</h5>
+                        <div className="reply-date">
+                          {new Date(review.sellerReply.createdAt).toLocaleDateString()}
+                        </div>
+                      </div>
+                      <p>{review.sellerReply.comment}</p>
+                    </div>
+                  )}
+                  
+                  {/* Reply Button for Seller */}
+                  {isProductSeller && !review.sellerReply && (
+                    <div className="seller-actions">
+                      {replyingTo === review._id ? (
+                        <div className="reply-form">
+                          <textarea
+                            value={replyText}
+                            onChange={(e) => setReplyText(e.target.value)}
+                            placeholder="Write your reply..."
+                            rows={3}
+                          />
+                          <div className="reply-actions">
+                            <button 
+                              className="submit-reply"
+                              onClick={() => handleReplySubmit(review._id)}
+                              disabled={!replyText.trim()}
+                            >
+                              Submit Reply
+                            </button>
+                            <button 
+                              className="cancel-reply"
+                              onClick={() => {
+                                setReplyingTo(null);
+                                setReplyText('');
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button 
+                          className="reply-button"
+                          onClick={() => setReplyingTo(review._id)}
+                        >
+                          Reply to Review
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))
+            ) : (
+              <div className="no-reviews">
+                <p>No reviews yet. Be the first to review this product!</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Related Products Section */}
+        <div className="related-products-section">
+          <h2>More from {product?.brand?.name}</h2>
+          {relatedLoading ? (
+            <div className="loading-spinner"></div>
+          ) : relatedProducts.length > 0 ? (
+            <div className="related-products-grid">
+              {relatedProducts.map((relatedProduct) => (
+                <ProductCard key={relatedProduct._id} product={relatedProduct} />
+              ))}
+            </div>
+          ) : (
+            <div className="no-related-products">No related products found</div>
+          )}
         </div>
       </div>
     </div>

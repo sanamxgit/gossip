@@ -3,7 +3,7 @@ import { API_URL } from '../../config';
 
 // Create an axios instance for user endpoints
 const userApi = axios.create({
-  baseURL: `${API_URL}/api/users`,
+  baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json'
   }
@@ -27,7 +27,7 @@ const userService = {
   // Get all users (admin only)
   getAllUsers: async () => {
     try {
-      const response = await userApi.get('/admin/users');
+      const response = await userApi.get('/api/users/auth/users');
       return response.data;
     } catch (error) {
       console.error('Error fetching users:', error);
@@ -38,7 +38,7 @@ const userService = {
   // Get user by ID (admin only)
   getUserById: async (userId) => {
     try {
-      const response = await userApi.get(`/admin/users/${userId}`);
+      const response = await userApi.get(`/api/users/auth/users/${userId}`);
       return response.data;
     } catch (error) {
       console.error('Error fetching user:', error);
@@ -49,7 +49,7 @@ const userService = {
   // Update user (admin only)
   updateUser: async (userId, userData) => {
     try {
-      const response = await userApi.put(`/admin/users/${userId}`, userData);
+      const response = await userApi.put(`/api/users/auth/users/${userId}`, userData);
       return response.data;
     } catch (error) {
       console.error('Error updating user:', error);
@@ -60,7 +60,7 @@ const userService = {
   // Delete user (admin only)
   deleteUser: async (userId) => {
     try {
-      const response = await userApi.delete(`/admin/users/${userId}`);
+      const response = await userApi.delete(`/api/users/auth/users/${userId}`);
       return response.data;
     } catch (error) {
       console.error('Error deleting user:', error);
@@ -436,7 +436,7 @@ const userService = {
   // Get users by role
   getUsersByRole: async (role) => {
     try {
-      const response = await userApi.get(`/admin/users?role=${role}`);
+      const response = await userApi.get(`/api/auth/users?role=${role}`);
       return response.data;
     } catch (error) {
       console.error(`Error fetching ${role} users:`, error);

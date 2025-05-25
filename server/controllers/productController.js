@@ -1,4 +1,5 @@
 const Product = require('../models/Product');
+const Category = require('../models/Category');
 const mongoose = require('mongoose');
 const { uploadToCloudinary, deleteFromCloudinary } = require('../middleware/cloudinaryMiddleware');
 
@@ -108,46 +109,82 @@ const createProduct = async (req, res) => {
       title,
       description,
       price,
+      originalPrice,
       category,
       brand,
       stock,
       colors,
-      sizes,
       specifications,
       features,
       arModels,
-      imagesCount
+      imagesCount,
+      images
     } = req.body;
 
+    // Validate required fields
+    if (!title || !description || !price || !category || !brand || stock === undefined) {
+      return res.status(400).json({
+        message: 'Missing required fields',
+        required: ['title', 'description', 'price', 'category', 'brand', 'stock']
+      });
+    }
+
+    // Handle category - check if string name or ObjectId
+    let categoryId = category;
+    if (!mongoose.Types.ObjectId.isValid(category)) {
+      // If category is a name, look up the ID
+      const categoryDoc = await Category.findOne({ name: category });
+      if (!categoryDoc) {
+        return res.status(400).json({
+          message: 'Invalid category. Please provide a valid category ID or name.'
+        });
+      }
+      categoryId = categoryDoc._id;
+    }
+
     // Process images
-    let images = [];
-    const imageCount = parseInt(imagesCount || '0');
+    let processedImages = [];
     
-    if (imageCount > 0) {
+    // Handle images if they're in the request body as an array
+    if (Array.isArray(images)) {
+      processedImages = images.map(img => ({
+        url: img.url,
+        public_id: img.public_id
+      }));
+    } else {
+      // Handle individual image fields if array is not present
+      const imageCount = parseInt(imagesCount || '0');
       for (let i = 0; i < imageCount; i++) {
         const url = req.body[`images[${i}][url]`];
         const public_id = req.body[`images[${i}][public_id]`];
         
         if (url && public_id) {
-          images.push({ url, public_id });
+          processedImages.push({ url, public_id });
         }
       }
     }
 
-    // Create new product
+    // Calculate discount percentage
+    let discountPercentage = 0;
+    if (originalPrice && Number(originalPrice) > Number(price)) {
+      discountPercentage = Math.round(((Number(originalPrice) - Number(price)) / Number(originalPrice)) * 100);
+    }
+
+    // Create new product with validated data
     const product = new Product({
-      title,
-      description,
+      title: title.trim(),
+      description: description.trim(),
       price: Number(price),
-      category,
+      originalPrice: originalPrice ? Number(originalPrice) : undefined,
+      discountPercentage,
+      category: categoryId,
       brand,
       stock: Number(stock),
       colors: colors ? JSON.parse(colors) : [],
-      sizes: sizes ? JSON.parse(sizes) : [],
       specifications: specifications ? JSON.parse(specifications) : [],
       features: features ? JSON.parse(features) : [],
       arModels: arModels ? JSON.parse(arModels) : {},
-      images: images,
+      images: processedImages,
       seller: req.user._id
     });
 
@@ -155,12 +192,19 @@ const createProduct = async (req, res) => {
 
     // Save product
     const savedProduct = await product.save();
-    console.log('Saved product:', savedProduct);
+    
+    // Populate the saved product with category and brand details
+    const populatedProduct = await Product.findById(savedProduct._id)
+      .populate('category', 'name')
+      .populate('brand', 'name')
+      .populate('seller', 'username sellerProfile.storeName');
+
+    console.log('Saved product:', populatedProduct);
 
     // Return success response
     res.status(201).json({
       message: 'Product created successfully',
-      product: savedProduct
+      product: populatedProduct
     });
   } catch (error) {
     console.error('Error creating product:', error);
@@ -292,7 +336,7 @@ const deleteProduct = async (req, res) => {
 // @access  Private
 const createProductReview = async (req, res) => {
   try {
-    const { rating, comment } = req.body;
+    const { rating, comment, photos, orderId } = req.body;
 
     const product = await Product.findById(req.params.id);
 
@@ -300,13 +344,14 @@ const createProductReview = async (req, res) => {
       return res.status(404).json({ message: 'Product not found' });
     }
 
-    // Check if the user already reviewed the product
+    // Check if the user already reviewed this product for this order
     const alreadyReviewed = product.reviews.find(
-      (r) => r.userId.toString() === req.user._id.toString()
+      (r) => r.userId.toString() === req.user._id.toString() && 
+             r.orderId.toString() === orderId.toString()
     );
 
     if (alreadyReviewed) {
-      return res.status(400).json({ message: 'Product already reviewed' });
+      return res.status(400).json({ message: 'You have already reviewed this product for this order' });
     }
 
     const review = {
@@ -314,6 +359,9 @@ const createProductReview = async (req, res) => {
       rating: Number(rating),
       comment,
       userId: req.user._id,
+      orderId,
+      photos: photos || [],
+      verified: true // Since it's coming from an order
     };
 
     product.reviews.push(review);
@@ -323,8 +371,49 @@ const createProductReview = async (req, res) => {
       product.reviews.length;
 
     await product.save();
-    res.status(201).json({ message: 'Review added' });
+    res.status(201).json({ message: 'Review added', review });
   } catch (error) {
+    console.error('Error creating review:', error);
+    res.status(400).json({ message: error.message });
+  }
+};
+
+// @desc    Add reply to a review
+// @route   POST /api/products/:id/reviews/:reviewId/reply
+// @access  Private/Seller
+const addReviewReply = async (req, res) => {
+  try {
+    const { comment } = req.body;
+    const { id, reviewId } = req.params;
+
+    const product = await Product.findById(id);
+
+    if (!product) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+
+    // Check if user is the seller of the product
+    if (product.seller.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Only the seller can reply to reviews' });
+    }
+
+    // Find the review
+    const review = product.reviews.id(reviewId);
+    if (!review) {
+      return res.status(404).json({ message: 'Review not found' });
+    }
+
+    // Add or update the reply
+    review.sellerReply = {
+      comment,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+
+    await product.save();
+    res.status(200).json({ message: 'Reply added successfully', review });
+  } catch (error) {
+    console.error('Error adding reply:', error);
     res.status(400).json({ message: error.message });
   }
 };
@@ -775,6 +864,7 @@ module.exports = {
   updateProduct,
   deleteProduct,
   createProductReview,
+  addReviewReply,
   getSellerProducts,
   getFeaturedProducts,
   getProductsByCategory,

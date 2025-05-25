@@ -6,7 +6,8 @@ const categoryApi = axios.create({
   baseURL: `${API_URL}/api/categories`,
   headers: {
     'Content-Type': 'application/json'
-  }
+  },
+  withCredentials: true
 });
 
 // Add request interceptor to add auth token
@@ -23,14 +24,53 @@ categoryApi.interceptors.request.use(
   }
 );
 
+const defaultCategories = [
+  {
+    name: 'Home and Decor',
+    description: 'Home decoration and furnishing items',
+    isTrending: true
+  },
+  {
+    name: 'Electronics',
+    description: 'Electronic devices and gadgets',
+    isTrending: true
+  },
+  {
+    name: 'Skin Care',
+    description: 'Skin care and beauty products',
+    isTrending: true
+  },
+  {
+    name: 'Mobile Devices',
+    description: 'Smartphones and mobile accessories',
+    isTrending: true
+  },
+  {
+    name: 'Accessories',
+    description: 'Fashion and personal accessories',
+    isTrending: true
+  }
+];
+
 const categoryService = {
   // Get all categories
   getAllCategories: async () => {
     try {
       const response = await categoryApi.get('/');
-    return response.data;
+      return response.data;
     } catch (error) {
       console.error('Error fetching categories:', error);
+      throw error;
+    }
+  },
+
+  // Get trending categories
+  getTrendingCategories: async () => {
+    try {
+      const response = await categoryApi.get('/trending');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching trending categories:', error);
       throw error;
     }
   },
@@ -53,7 +93,7 @@ const categoryService = {
   getCategoryById: async (categoryId) => {
     try {
       const response = await categoryApi.get(`/${categoryId}`);
-    return response.data;
+      return response.data;
     } catch (error) {
       console.error('Error fetching category:', error);
       throw error;
@@ -81,30 +121,29 @@ const categoryService = {
   // Create category (admin only)
   createCategory: async (categoryData) => {
     try {
-    const formData = new FormData();
-    
-      // Add basic category data
-      formData.append('name', categoryData.name);
-      if (categoryData.description) {
-        formData.append('description', categoryData.description);
-      }
-      if (categoryData.parent) {
-        formData.append('parent', categoryData.parent);
-      }
-    
-      // Add image if provided
-      if (categoryData.image instanceof File) {
-      formData.append('image', categoryData.image);
-    }
-    
-      const response = await categoryApi.post('/', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data'
-      }
-    });
-    return response.data;
+      const response = await categoryApi.post('/', categoryData);
+      return response.data;
     } catch (error) {
       console.error('Error creating category:', error);
+      throw error;
+    }
+  },
+
+  // Initialize default categories
+  initializeDefaultCategories: async () => {
+    try {
+      const existingCategories = await categoryApi.get('/');
+      
+      if (existingCategories.data.categories.length === 0) {
+        for (const category of defaultCategories) {
+          await categoryApi.post('/', category);
+        }
+        console.log('Default categories initialized successfully');
+      }
+      
+      return await categoryApi.get('/');
+    } catch (error) {
+      console.error('Error initializing default categories:', error);
       throw error;
     }
   },
@@ -112,28 +151,8 @@ const categoryService = {
   // Update category (admin only)
   updateCategory: async (categoryId, categoryData) => {
     try {
-    const formData = new FormData();
-    
-      // Add basic category data
-      formData.append('name', categoryData.name);
-      if (categoryData.description) {
-        formData.append('description', categoryData.description);
-      }
-      if (categoryData.parent) {
-        formData.append('parent', categoryData.parent);
-      }
-    
-      // Add image if provided
-      if (categoryData.image instanceof File) {
-        formData.append('image', categoryData.image);
-    }
-    
-      const response = await categoryApi.put(`/${categoryId}`, formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data'
-      }
-    });
-    return response.data;
+      const response = await categoryApi.put(`/${categoryId}`, categoryData);
+      return response.data;
     } catch (error) {
       console.error('Error updating category:', error);
       throw error;

@@ -1,5 +1,6 @@
 import React from 'react';
 import PropTypes from 'prop-types';
+import { formatPrice } from '../utils/formatters';
 
 /**
  * A component to display prices in Indian Rupees (₹)
@@ -16,8 +17,12 @@ const PriceDisplay = ({
   showSymbol = true, 
   className = '', 
   size = 'md',
-  bold = false
+  bold = false,
+  originalPrice,
+  showDiscount = true
 }) => {
+  const discount = originalPrice ? Math.round(((originalPrice - price) / originalPrice) * 100) : 0;
+
   // Format price with Indian locale and rupee symbol
   const formattedPrice = new Intl.NumberFormat('en-IN', {
     style: showSymbol ? 'currency' : 'decimal',
@@ -36,9 +41,15 @@ const PriceDisplay = ({
   const fontWeightClass = bold ? 'font-bold' : 'font-normal';
   
   return (
-    <span className={`price-display ${sizeClass} ${fontWeightClass} ${className}`}>
-      {formattedPrice}
-    </span>
+    <div className={`price-display ${sizeClass} ${fontWeightClass} ${className}`}>
+      <span className="current-price">{formatPrice(price)}</span>
+      {originalPrice && originalPrice > price && (
+        <>
+          <span className="original-price">{formatPrice(originalPrice)}</span>
+          {showDiscount && <span className="discount">-{discount}%</span>}
+        </>
+      )}
+    </div>
   );
 };
 
@@ -47,7 +58,9 @@ PriceDisplay.propTypes = {
   showSymbol: PropTypes.bool,
   className: PropTypes.string,
   size: PropTypes.oneOf(['sm', 'md', 'lg', 'xl']),
-  bold: PropTypes.bool
+  bold: PropTypes.bool,
+  originalPrice: PropTypes.number,
+  showDiscount: PropTypes.bool
 };
 
 export default PriceDisplay; 

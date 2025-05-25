@@ -76,7 +76,8 @@ const AdminDashboard = () => {
     name: '',
     description: '',
     parent: '',
-    image: null
+    image: null,
+    isTrending: false
   })
 
   const [sellers, setSellers] = useState([])
@@ -255,7 +256,12 @@ const AdminDashboard = () => {
       // Fetch users (only customers)
       try {
         const usersData = await userService.getUsersByRole('user');
-        setUsers(usersData.users || []);
+        if (usersData && Array.isArray(usersData.users)) {
+          setUsers(usersData.users);
+        } else {
+          console.error('Invalid users data structure:', usersData);
+          setUsers([]);
+        }
       } catch (error) {
         console.error('Error fetching users:', error);
         setUsers([]);
@@ -264,7 +270,12 @@ const AdminDashboard = () => {
       // Fetch sellers
       try {
         const sellersData = await userService.getUsersByRole('seller');
-        setSellers(sellersData.users || []);
+        if (sellersData && Array.isArray(sellersData.users)) {
+          setSellers(sellersData.users);
+        } else {
+          console.error('Invalid sellers data structure:', sellersData);
+          setSellers([]);
+        }
       } catch (error) {
         console.error('Error fetching sellers:', error);
         setSellers([]);
@@ -879,7 +890,8 @@ const AdminDashboard = () => {
       name: '',
       description: '',
       parent: '',
-      image: null
+      image: null,
+      isTrending: false
     });
     setShowCategoryForm(true);
   };
@@ -892,66 +904,55 @@ const AdminDashboard = () => {
         return;
       }
 
-      // Create category data object
-      const formData = new FormData();
-      
-      // Add required fields
-      formData.append('name', categoryFormData.name);
-      formData.append('description', categoryFormData.description);
-      
-      // Add parent if it exists
-      if (categoryFormData.parent) {
-        formData.append('parent', categoryFormData.parent);
-      }
-      
-      // Add image if it exists
-      if (categoryFormData.image instanceof File) {
-        formData.append('image', categoryFormData.image);
-      }
+      const formData = {
+        name: categoryFormData.name,
+        description: categoryFormData.description,
+        parent: categoryFormData.parent || null,
+        image: categoryFormData.image,
+        isTrending: categoryFormData.isTrending || false
+      };
 
       let response;
       if (categoryFormData.id) {
-        // Update existing category
         response = await categoryService.updateCategory(categoryFormData.id, formData);
       } else {
-        // Create new category
         response = await categoryService.createCategory(formData);
       }
 
       // Update categories list
-      if (categoryFormData.id) {
-        setCategories(categories.map(cat => 
-          cat._id === categoryFormData.id ? response.data : cat
-        ));
-      } else {
-        setCategories([...categories, response.data]);
-      }
-      
-      // Reset form and close modal
-      setShowCategoryForm(false);
+      const categoriesData = await categoryService.getAllCategories();
+      setCategories(categoriesData.categories || []);
+
+      // Reset form
       setCategoryFormData({
         id: null,
         name: '',
         description: '',
         parent: '',
-        image: null
+        image: null,
+        isTrending: false
       });
-      
-      // Show success message
-      alert(categoryFormData.id ? 'Category updated successfully!' : 'Category created successfully!');
+      setShowCategoryForm(false);
+
+      alert(`Category ${categoryFormData.id ? 'updated' : 'created'} successfully!`);
     } catch (error) {
-      console.error('Error saving category:', error);
-      alert('Failed to save category: ' + (error.response?.data?.message || error.message));
+      console.error('Error submitting category:', error);
+      alert(error.response?.data?.message || 'Error submitting category');
     }
   };
 
   const handleCategoryImageChange = (e) => {
     const file = e.target.files[0];
     if (file) {
-      setCategoryFormData(prev => ({
-        ...prev,
-        image: file
-      }));
+      if (file.type.startsWith('image/')) {
+        setCategoryFormData({
+          ...categoryFormData,
+          image: file
+        });
+      } else {
+        alert('Please upload an image file');
+        e.target.value = '';
+      }
     }
   };
 
@@ -979,24 +980,38 @@ const AdminDashboard = () => {
   };
 
   // Add function to handle product selection
-  const handleProductSelection = (productId) => {
-    // Toggle product selection and update productsData in one go
+  const handleProductSelect = (productId) => {
     setSelectedProducts(prevSelected => {
-      const newSelectedProducts = prevSelected.includes(productId)
+      const newSelected = prevSelected.includes(productId)
         ? prevSelected.filter(id => id !== productId)
         : [...prevSelected, productId];
       
-      // Update productsData with the new selection
-      const updatedProductsData = { ...productsData, productIds: newSelectedProducts };
-      setProductsData(updatedProductsData);
-      
-      // Also update sectionFormData content to keep everything in sync
-    setSectionFormData(prev => ({
-      ...prev,
-      content: JSON.stringify(updatedProductsData)
+      // Update productsData and sectionFormData
+      const newProductsData = { productIds: newSelected };
+      setProductsData(newProductsData);
+      setSectionFormData(prev => ({
+        ...prev,
+        content: JSON.stringify(newProductsData)
       }));
       
-      return newSelectedProducts;
+      return newSelected;
+    });
+  };
+
+  // Add function to handle product deselection
+  const handleProductDeselect = (productId) => {
+    setSelectedProducts(prevSelected => {
+      const newSelected = prevSelected.filter(id => id !== productId);
+      
+      // Update productsData and sectionFormData
+      const newProductsData = { productIds: newSelected };
+      setProductsData(newProductsData);
+      setSectionFormData(prev => ({
+        ...prev,
+        content: JSON.stringify(newProductsData)
+      }));
+      
+      return newSelected;
     });
   };
 
@@ -1021,19 +1036,14 @@ const AdminDashboard = () => {
         processedContent = categoriesData;
       } else if (sectionFormData.type === "products") {
         // Use productsData directly
-        processedContent = productsData;
+        processedContent = {
+          productIds: selectedProducts
+        };
         // Add debugging logs
         console.log('Submitting products data:', {
           selectedProducts,
-          productsDataState: productsData,
           processedContent
         });
-        
-        // Ensure the productIds array is included and populated correctly
-        if (!processedContent.productIds || !Array.isArray(processedContent.productIds)) {
-          processedContent.productIds = selectedProducts;
-          console.log('Fixed missing productIds in processed content:', processedContent);
-        }
       } else if (sectionFormData.type === "icon-categories") {
         // Process iconCategoriesData to ensure it has proper structure
         if (iconCategoriesData && iconCategoriesData.categories) {
@@ -1087,41 +1097,30 @@ const AdminDashboard = () => {
       
       console.log('Submitting section data:', sectionData);
       
-      // Skip ID check for new sections since they won't have an ID yet
-      let sectionId = null;
-      
-      // Only perform ID checking for updates, not for new sections
-      if (sectionFormData.id) {
-        // This is an update operation - we need the section ID
-        sectionId = sectionFormData.id;
-        console.log(`Updating existing section with ID: ${sectionId}`);
-      } else {
-        // This is a create operation - no ID needed
-        console.log('Creating new section - no ID needed');
-      }
-      
       let response;
-
+      
       if (sectionFormData.id) {
         // Update existing section
         try {
-          console.log(`Sending update request for section ID: ${sectionId}`, sectionData);
-          response = await homepageSectionService.updateSection(sectionId, sectionData);
-          console.log('Section updated:', {
-            id: response._id,
-            type: response.type,
-            content: JSON.stringify(response.content, null, 2)
-          });
+          console.log(`Sending update request for section ID: ${sectionFormData.id}`, sectionData);
+          response = await homepageSectionService.updateSection(sectionFormData.id, sectionData);
+          console.log('Section updated:', response);
           
           // Update local state with the response from the server
-          // Match by either id or _id
-          const updatedSections = homePageSections.map(section => 
-            (section.id === sectionFormData.id || section._id === sectionFormData.id) ? response : section
+          setHomePageSections(prevSections => 
+            prevSections.map(section => 
+              (section.id === sectionFormData.id || section._id === sectionFormData.id) 
+                ? response 
+                : section
+            )
           );
           
-          setHomePageSections(updatedSections);
-          
           // Also update localStorage
+          const updatedSections = homePageSections.map(section => 
+            (section.id === sectionFormData.id || section._id === sectionFormData.id) 
+              ? response 
+              : section
+          );
           localStorage.setItem('homePageSections', JSON.stringify(updatedSections));
           console.log('Updated localStorage after section update');
           
@@ -1135,20 +1134,15 @@ const AdminDashboard = () => {
       } else {
         // Create new section
         try {
-          // For new sections, don't need sectionId
           console.log('Sending create request for new section:', sectionData);
           response = await homepageSectionService.createSection(sectionData);
-          console.log('Section created:', {
-            id: response._id,
-            type: response.type,
-            content: JSON.stringify(response.content, null, 2)
-          });
+          console.log('Section created:', response);
           
           // Update local state with the response from the server
-          const updatedSections = [...homePageSections, response];
-          setHomePageSections(updatedSections);
+          setHomePageSections(prevSections => [...prevSections, response]);
           
           // Also update localStorage
+          const updatedSections = [...homePageSections, response];
           localStorage.setItem('homePageSections', JSON.stringify(updatedSections));
           console.log('Updated localStorage after section creation');
           
@@ -1163,16 +1157,6 @@ const AdminDashboard = () => {
       
       // Reset form and states
       setShowSectionForm(false);
-      setSectionFormData({
-        id: null,
-        title: "",
-        type: "banner",
-        content: "",
-        order: homePageSections.length + 1,
-        active: true,
-      });
-      
-      // Reset section specific data
       setBannerData({
         slides: [
           {
@@ -1436,7 +1420,8 @@ const AdminDashboard = () => {
       name: category.name,
       description: category.description,
       parent: category.parent || '',
-      image: null
+      image: null,
+      isTrending: category.isTrending || false
     });
     setShowCategoryForm(true);
   };
@@ -1735,117 +1720,129 @@ const AdminDashboard = () => {
             <div className="categories-tab">
               <div className="tab-header">
                 <h2>Categories Management</h2>
-                <button className="add-btn" onClick={handleAddCategory}>
-                  <FaPlus /> Add Category
+                <button className="btn-primary" onClick={() => setShowCategoryForm(true)}>
+                  Add New Category
                 </button>
-              </div>
-
-              <div className="categories-list">
-                {(categories || []).map((category) => (
-                  <div key={category._id} className="category-item">
-                    <div className="category-info">
-                      {category.image?.url && (
-                        <img src={category.image.url} alt={category.name} className="category-image" />
-                      )}
-                      <div className="category-details">
-                        <h3>{category.name}</h3>
-                        <p>{category.description}</p>
-                        {category.parent && (
-                          <p className="parent-category">
-                            Parent: {categories.find(c => c._id === category.parent)?.name}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="category-actions">
-                      <button onClick={() => handleEditCategory(category)} className="edit-btn">
-                        <FaEdit /> Edit
-                      </button>
-                      <button onClick={() => handleDeleteCategory(category._id)} className="delete-btn">
-                        <FaTrash /> Delete
-                      </button>
-                    </div>
-                  </div>
-                ))}
               </div>
 
               {showCategoryForm && (
                 <div className="modal">
                   <div className="modal-content">
-                    <div className="modal-header">
-                      <h2>{categoryFormData.id ? 'Edit Category' : 'Add New Category'}</h2>
-                      <button className="close-btn" onClick={() => setShowCategoryForm(false)}>×</button>
-                    </div>
+                    <h3>{categoryFormData.id ? 'Edit Category' : 'Add New Category'}</h3>
                     <form onSubmit={handleCategoryFormSubmit}>
                       <div className="form-group">
-                        <label>Name*</label>
+                        <label>Name</label>
                         <input
                           type="text"
                           value={categoryFormData.name}
-                          onChange={(e) => setCategoryFormData(prev => ({
-                            ...prev,
-                            name: e.target.value
-                          }))}
+                          onChange={(e) => setCategoryFormData({...categoryFormData, name: e.target.value})}
                           required
                         />
                       </div>
-
                       <div className="form-group">
-                        <label>Description *</label>
+                        <label>Description</label>
                         <textarea
                           value={categoryFormData.description}
-                          onChange={(e) => setCategoryFormData(prev => ({
-                            ...prev,
-                            description: e.target.value
-                          }))}
-                          placeholder="Enter category description"
+                          onChange={(e) => setCategoryFormData({...categoryFormData, description: e.target.value})}
                           required
-                        />
+                        ></textarea>
                       </div>
-
                       <div className="form-group">
-                        <label>Parent Category (Optional)</label>
+                        <label>Parent Category</label>
                         <select
                           value={categoryFormData.parent}
-                          onChange={(e) => setCategoryFormData(prev => ({
-                            ...prev,
-                            parent: e.target.value
-                          }))}
+                          onChange={(e) => setCategoryFormData({...categoryFormData, parent: e.target.value})}
                         >
-                          <option value="">None (Top Level)</option>
-                          {categories
-                            .filter(cat => cat._id !== categoryFormData.id)
-                            .map(cat => (
-                              <option key={cat._id} value={cat._id}>
-                                {cat.name}
-                              </option>
-                            ))
-                          }
+                          <option value="">None</option>
+                          {categories.map(cat => (
+                            <option key={cat._id} value={cat._id}>{cat.name}</option>
+                          ))}
                         </select>
                       </div>
-
                       <div className="form-group">
-                        <label>Category Image (Optional)</label>
+                        <label>Image</label>
                         <input
                           type="file"
                           accept="image/*"
                           onChange={handleCategoryImageChange}
                         />
-                        <small className="help-text">Upload an image for the category (optional)</small>
+                        {categoryFormData.image && (
+                          <div className="image-preview">
+                            <img
+                              src={categoryFormData.image instanceof File ? URL.createObjectURL(categoryFormData.image) : categoryFormData.image.url}
+                              alt="Category preview"
+                            />
+                          </div>
+                        )}
                       </div>
-
+                      <div className="form-group">
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={categoryFormData.isTrending}
+                            onChange={(e) => setCategoryFormData({...categoryFormData, isTrending: e.target.checked})}
+                          />
+                          Mark as Trending
+                        </label>
+                      </div>
                       <div className="form-actions">
-                        <button type="button" onClick={() => setShowCategoryForm(false)}>
-                          Cancel
-                        </button>
-                        <button type="submit">
+                        <button type="submit" className="btn-primary">
                           {categoryFormData.id ? 'Update Category' : 'Create Category'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() => setShowCategoryForm(false)}
+                        >
+                          Cancel
                         </button>
                       </div>
                     </form>
                   </div>
                 </div>
               )}
+
+              <div className="categories-list">
+                {categories.map(category => (
+                  <div key={category._id} className="category-item">
+                    <div className="category-info">
+                      {category.image?.url && (
+                        <img
+                          src={category.image.url}
+                          alt={category.name}
+                          className="category-image"
+                        />
+                      )}
+                      <div className="category-details">
+                        <h4>{category.name}</h4>
+                        <p>{category.description}</p>
+                        {category.parent && (
+                          <p className="parent-category">
+                            Parent: {categories.find(c => c._id === category.parent)?.name}
+                          </p>
+                        )}
+                        {category.isTrending && (
+                          <span className="trending-badge">Trending</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="category-actions">
+                      <button
+                        className="btn-secondary"
+                        onClick={() => handleEditCategory(category)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="btn-danger"
+                        onClick={() => handleDeleteCategory(category._id)}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -2049,6 +2046,293 @@ const AdminDashboard = () => {
           )}
         </div>
       </div>
+
+      {showSectionForm && (
+        <div className="section-form-modal">
+          <div className="section-form-content">
+            <button className="close-form-btn" onClick={() => setShowSectionForm(false)}>×</button>
+            <h2>{sectionFormData.id ? 'Edit Section' : 'Add New Section'}</h2>
+            
+            <form onSubmit={handleSectionFormSubmit}>
+              <div className="form-group">
+                <label>Title*</label>
+                <input
+                  type="text"
+                  name="title"
+                  value={sectionFormData.title}
+                  onChange={handleSectionFormChange}
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Type*</label>
+                <select 
+                  name="type"
+                  value={sectionFormData.type}
+                  onChange={handleSectionFormChange}
+                  required
+                >
+                  <option value="banner">Banner</option>
+                  <option value="categories">Categories</option>
+                  <option value="products">Products</option>
+                  <option value="icon-categories">Icon Categories</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>Order*</label>
+                <input
+                  type="number"
+                  name="order"
+                  value={sectionFormData.order}
+                  onChange={handleSectionFormChange}
+                  min="1"
+                  required
+                />
+              </div>
+
+              <div className="checkbox-group">
+                <label>
+                  <input
+                    type="checkbox"
+                    name="active"
+                    checked={sectionFormData.active}
+                    onChange={handleSectionFormChange}
+                  />
+                  Active
+                </label>
+              </div>
+
+              {/* Dynamic form fields based on section type */}
+              {sectionFormData.type === "banner" && (
+                <div className="banner-form">
+                  {bannerData.slides.map((slide, index) => (
+                    <div key={index} className="banner-slide">
+                      <h3>Slide {index + 1}</h3>
+                      <div className="form-group">
+                        <label>Image*</label>
+                        <div className="image-upload-group">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => handleBannerImageUpload(index, e)}
+                            className="image-upload-input"
+                          />
+                          <span className="or-divider">OR</span>
+                          <input
+                            type="text"
+                            value={slide.imageUrl}
+                            onChange={(e) => handleBannerChange(index, 'imageUrl', e.target.value)}
+                            placeholder="Enter image URL"
+                            className="image-url-input"
+                          />
+                        </div>
+                        {slide.imageUrl && (
+                          <div className="image-preview">
+                            <img src={slide.imageUrl} alt={`Slide ${index + 1}`} />
+                          </div>
+                        )}
+                      </div>
+                      <div className="form-group">
+                        <label>Title</label>
+                        <input
+                          type="text"
+                          value={slide.title}
+                          onChange={(e) => handleBannerChange(index, 'title', e.target.value)}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Subtitle</label>
+                        <input
+                          type="text"
+                          value={slide.subtitle}
+                          onChange={(e) => handleBannerChange(index, 'subtitle', e.target.value)}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Button Text</label>
+                        <input
+                          type="text"
+                          value={slide.buttonText}
+                          onChange={(e) => handleBannerChange(index, 'buttonText', e.target.value)}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Button Link</label>
+                        <input
+                          type="text"
+                          value={slide.buttonLink}
+                          onChange={(e) => handleBannerChange(index, 'buttonLink', e.target.value)}
+                        />
+                      </div>
+                      {bannerData.slides.length > 1 && (
+                        <button
+                          type="button"
+                          className="btn-danger"
+                          onClick={() => handleRemoveBannerSlide(index)}
+                        >
+                          Remove Slide
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={handleAddBannerSlide}
+                  >
+                    Add Slide
+                  </button>
+                </div>
+              )}
+
+              {sectionFormData.type === "categories" && (
+                <div className="categories-form">
+                  <div className="form-group">
+                    <label>Select Categories</label>
+                    <select
+                      multiple
+                      value={categoriesData.categories.map(cat => cat.id)}
+                      onChange={(e) => {
+                        const selectedOptions = Array.from(e.target.selectedOptions, option => ({
+                          id: option.value,
+                          name: option.text
+                        }));
+                        setCategoriesData({ categories: selectedOptions });
+                        setSectionFormData(prev => ({
+                          ...prev,
+                          content: JSON.stringify({ categories: selectedOptions })
+                        }));
+                      }}
+                    >
+                      {categories.map(category => (
+                        <option key={category._id} value={category._id}>
+                          {category.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {sectionFormData.type === "products" && (
+                <div className="products-form">
+                  <div className="form-group">
+                    <label>Search Products</label>
+                    <input
+                      type="text"
+                      value={productSearch}
+                      onChange={(e) => {
+                        setProductSearch(e.target.value);
+                        const searchTerm = e.target.value.toLowerCase();
+                        setSearchResults(
+                          allProducts.filter(product =>
+                            product.name.toLowerCase().includes(searchTerm)
+                          )
+                        );
+                      }}
+                      placeholder="Type to search products..."
+                    />
+                  </div>
+
+                  <div className="search-results">
+                    {searchResults.map(product => (
+                      <div
+                        key={product.id}
+                        className={`search-result-item ${selectedProducts.includes(product.id) ? 'selected' : ''}`}
+                        onClick={() => handleProductSelect(product.id)}
+                      >
+                        <img src={product.image} alt={product.name} />
+                        <span>{product.name}</span>
+                        <span className="price">Rs. {product.price}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="selected-products">
+                    <h4>Selected Products</h4>
+                    {selectedProducts.map(productId => {
+                      const product = allProducts.find(p => p.id === productId);
+                      return product ? (
+                        <div key={productId} className="selected-product">
+                          <img src={product.image} alt={product.name} />
+                          <span>{product.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleProductDeselect(productId)}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ) : null;
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {sectionFormData.type === "icon-categories" && (
+                <div className="icon-categories-form">
+                  {iconCategoriesData.categories.map((category, index) => (
+                    <div key={index} className="icon-category-item">
+                      <div className="form-group">
+                        <label>Name*</label>
+                        <input
+                          type="text"
+                          value={category.name}
+                          onChange={(e) => handleIconCategoryChange(index, 'name', e.target.value)}
+                          required
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Image URL*</label>
+                        <input
+                          type="text"
+                          value={category.imageUrl}
+                          onChange={(e) => handleIconCategoryChange(index, 'imageUrl', e.target.value)}
+                          required
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Link*</label>
+                        <input
+                          type="text"
+                          value={category.link}
+                          onChange={(e) => handleIconCategoryChange(index, 'link', e.target.value)}
+                          required
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className="remove-category-btn"
+                        onClick={() => handleRemoveIconCategory(index)}
+                      >
+                        Remove Category
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className="add-category-btn"
+                    onClick={handleAddIconCategory}
+                  >
+                    Add Category
+                  </button>
+                </div>
+              )}
+
+              <div className="form-actions">
+                <button type="button" className="cancel-btn" onClick={() => setShowSectionForm(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="save-btn">
+                  {sectionFormData.id ? 'Update Section' : 'Add Section'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

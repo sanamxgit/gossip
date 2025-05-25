@@ -173,8 +173,11 @@ const deleteCategory = async (req, res) => {
 // @access  Public
 const getTopCategories = async (req, res) => {
   try {
-    const categories = await Category.find({ parentCategory: null }).sort({ name: 1 });
-    res.json(categories);
+    const categories = await Category.find({ parent: null })
+      .select('name image slug description')
+      .sort({ name: 1 });
+    
+    res.json({ categories }); // Wrap in categories object
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

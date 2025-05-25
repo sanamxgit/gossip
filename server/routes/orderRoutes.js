@@ -8,10 +8,10 @@ const { protect, admin, seller } = require('../middleware/authMiddleware');
 // @access  Private
 router.post('/', protect, orderController.createOrder);
 
-// @route   GET /api/orders/myorders
+// @route   GET /api/orders/my-orders
 // @desc    Get logged in user orders
 // @access  Private
-router.get('/myorders', protect, orderController.getMyOrders);
+router.get('/my-orders', protect, orderController.getMyOrders);
 
 // @route   GET /api/orders/seller
 // @desc    Get seller's orders
@@ -40,8 +40,14 @@ router.put('/:id/deliver', protect, admin, orderController.updateOrderToDelivere
 
 // @route   PUT /api/orders/:id/status
 // @desc    Update order status
-// @access  Private/Admin
-router.put('/:id/status', protect, admin, orderController.updateOrderStatus);
+// @access  Private/Admin/Seller
+router.put('/:id/status', protect, (req, res, next) => {
+  if (req.user.role === 'admin' || req.user.role === 'seller') {
+    next();
+  } else {
+    res.status(403).json({ message: 'Not authorized to update order status' });
+  }
+}, orderController.updateOrderStatus);
 
 // @route   PUT /api/orders/:id/cancel
 // @desc    Cancel order

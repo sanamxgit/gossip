@@ -13,10 +13,7 @@ const generateCloudinarySignature = (publicId, timestamp) => {
 // Create an axios instance with the base URL for product API calls
 const productApi = axios.create({
   baseURL: `${API_URL}/api/products`,
-  withCredentials: true,
-  headers: {
-    'Content-Type': 'application/json'
-  }
+  withCredentials: true
 });
 
 // Add a request interceptor to include the token in the headers for authenticated routes
@@ -27,6 +24,14 @@ productApi.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    
+    // Don't set Content-Type for FormData, let the browser set it automatically
+    if (config.data instanceof FormData) {
+      delete config.headers['Content-Type'];
+    } else {
+      config.headers['Content-Type'] = 'application/json';
+    }
+    
     return config;
   },
   (error) => {
@@ -175,17 +180,14 @@ const productService = {
   },
 
   // Search products
-  searchProducts: async (query, params = {}) => {
+  searchProducts: async (query) => {
     try {
-      const response = await productApi.get('/search', { 
-        params: { 
-          q: query,
-          ...params
-        } 
+      const response = await productApi.get('/search', {
+        params: { q: query }
       });
       return response.data;
     } catch (error) {
-      console.error(`Error searching products with query "${query}":`, error);
+      console.error('Error searching products:', error);
       throw error;
     }
   },
@@ -206,20 +208,12 @@ const productService = {
     }
   },
 
-  // Get product reviews
-  getProductReviews: async (productId, params = {}) => {
-    try {
-      const response = await productApi.get(`/${productId}/reviews`, { params });
-      return response.data;
-    } catch (error) {
-      console.error(`Error fetching reviews for product ${productId}:`, error);
-      throw error;
-    }
-  },
-
   // Add a product review
   addProductReview: async (productId, reviewData) => {
     try {
+      if (!productId) {
+        throw new Error('Product ID is required');
+      }
       const response = await productApi.post(`/${productId}/reviews`, reviewData);
       return response.data;
     } catch (error) {
@@ -310,8 +304,31 @@ const productService = {
   // Create a product (seller/admin only)
   createProduct: async (productData) => {
     try {
+      // If productData is already FormData, use it directly
+      if (productData instanceof FormData) {
+        const response = await productApi.post('/', productData);
+        return response.data;
+      }
+
+      // Otherwise, create a new FormData instance
       const formData = new FormData();
       
+      // Process images first to ensure they're properly formatted
+      let processedImages = [];
+      if (Array.isArray(productData.images)) {
+        processedImages = productData.images.map(img => {
+          if (img instanceof File) {
+            return img;
+          } else if (img && typeof img === 'object' && img.url && img.public_id) {
+            return {
+              url: img.url,
+              public_id: img.public_id
+            };
+          }
+          return null;
+        }).filter(img => img !== null);
+      }
+
       // Add all product data except images and arModels
       Object.keys(productData).forEach(key => {
         if (key !== 'images' && key !== 'arModels') {
@@ -323,27 +340,20 @@ const productService = {
         }
       });
       
-      // Handle images array
-      if (Array.isArray(productData.images)) {
-        // Add the count of images
-        formData.append('imagesCount', productData.images.length.toString());
+      // Add processed images
+      if (processedImages.length > 0) {
+        formData.append('imagesCount', processedImages.length.toString());
+        formData.append('images', JSON.stringify(processedImages));
         
-        // Process each image
-        for (let i = 0; i < productData.images.length; i++) {
-          const img = productData.images[i];
+        // Also add individual image fields for backward compatibility
+        processedImages.forEach((img, index) => {
           if (img instanceof File) {
-            // If it's a File object, upload it first
-            const uploadResponse = await uploadProductImage({ file: img });
-            if (uploadResponse && uploadResponse.secure_url) {
-              formData.append(`images[${i}][url]`, uploadResponse.secure_url);
-              formData.append(`images[${i}][public_id]`, uploadResponse.public_id);
-            }
-          } else if (img && typeof img === 'object' && img.url && img.public_id) {
-            // If it's already an uploaded image object
-            formData.append(`images[${i}][url]`, img.url);
-            formData.append(`images[${i}][public_id]`, img.public_id);
+            formData.append(`images[${index}]`, img);
+          } else {
+            formData.append(`images[${index}][url]`, img.url);
+            formData.append(`images[${index}][public_id]`, img.public_id);
           }
-        }
+        });
       }
 
       // Handle AR models
@@ -351,12 +361,7 @@ const productService = {
         formData.append('arModels', JSON.stringify(productData.arModels));
       }
       
-      const response = await productApi.post('/', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
-      });
-      
+      const response = await productApi.post('/', formData);
       return response.data;
     } catch (error) {
       console.error('Error creating product:', error);
@@ -580,30 +585,39 @@ const productService = {
       const file = formData.get('file');
       const platform = formData.get('platform');
       
-      console.log('Starting model upload:', {
-        filename: file.name,
-        type: file.type,
-        size: file.size,
-        platform
-      });
-      
-      console.log('Sending model upload request with FormData containing:',
-        [...formData.entries()].map(entry => {
-          if (entry[1] instanceof File) {
-            return `${entry[0]}: File(${entry[1].name}, ${entry[1].type}, ${entry[1].size} bytes)`;
-          }
-          return `${entry[0]}: ${entry[1]}`;
-        })
-      );
+      if (!file || !platform) {
+        throw new Error('Both file and platform are required');
+      }
 
-      // Make the API request with increased timeout
-      const response = await productApi.post('/upload/model', formData, {
+      // Validate file size (100MB limit)
+      const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+      if (file.size > MAX_FILE_SIZE) {
+        throw new Error(`File size (${(file.size / 1024 / 1024).toFixed(2)}MB) exceeds maximum allowed (100MB)`);
+      }
+      
+      // Log FormData contents for debugging
+      console.log('FormData contents:', {
+        file: {
+          name: file.name,
+          type: file.type,
+          size: file.size
+        },
+        platform: platform
+      });
+
+      // Create a new FormData object to ensure proper structure
+      const uploadFormData = new FormData();
+      uploadFormData.append('file', file);
+      uploadFormData.append('platform', platform);
+
+      // Make the API request with increased timeout and chunked upload
+      const response = await productApi.post('/upload/model', uploadFormData, {
         headers: {
-          'Content-Type': 'multipart/form-data'
+          'Content-Type': 'multipart/form-data',
         },
         maxContentLength: Infinity,
         maxBodyLength: Infinity,
-        timeout: 60000, // 60 second timeout
+        timeout: 300000, // 5 minute timeout
         onUploadProgress: (progressEvent) => {
           const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
           console.log(`Upload progress: ${percentCompleted}%`);
@@ -630,7 +644,14 @@ const productService = {
         status: error.response?.status
       });
       
-      throw new Error(`Upload failed: ${error.message}`);
+      // Provide more specific error messages
+      if (error.response?.status === 400) {
+        throw new Error(`Upload failed: ${error.response.data.message || 'Invalid request - check file type and platform'}`);
+      } else if (error.code === 'ECONNABORTED') {
+        throw new Error('Upload failed: Request timed out - try with a smaller file or check your connection');
+      } else {
+        throw new Error(`Upload failed: ${error.message}`);
+      }
     }
   },
 
@@ -658,6 +679,17 @@ const productService = {
     } catch (error) {
       console.error('Error deleting 3D model:', error);
       throw new Error('Failed to delete 3D model');
+    }
+  },
+
+  // Add a review reply (seller only)
+  addReviewReply: async (productId, reviewId, replyData) => {
+    try {
+      const response = await productApi.post(`/${productId}/reviews/${reviewId}/reply`, replyData);
+      return response.data;
+    } catch (error) {
+      console.error(`Error adding reply to review ${reviewId} for product ${productId}:`, error);
+      throw error;
     }
   },
 };

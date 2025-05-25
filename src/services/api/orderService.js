@@ -33,15 +33,39 @@ const orderService = {
   },
   
   // Get seller's orders
-  getSellerOrders: async (params = {}) => {
-    const response = await api.get('/seller', { params });
-    return response.data;
+  getSellerOrders: async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(
+        `${API_URL}/api/orders/seller`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
   },
   
   // Get order by ID
-  getOrderById: async (id) => {
-    const response = await api.get(`/${id}`);
-    return response.data;
+  getOrderById: async (orderId) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(
+        `${API_URL}/api/orders/${orderId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
   },
   
   // Create a new order
@@ -50,16 +74,79 @@ const orderService = {
     return response.data;
   },
   
-  // Update order status (admin/seller only)
-  updateOrderStatus: async (id, status) => {
-    const response = await api.patch(`/${id}/status`, { status });
-    return response.data;
+  // Update order status
+  updateOrderStatus: async (orderId, status, note = '') => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.put(
+        `${API_URL}/api/orders/${orderId}/status`,
+        { status, note },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
   },
   
-  // Cancel order (user can only cancel their own orders)
-  cancelOrder: async (id, reason) => {
-    const response = await api.post(`/${id}/cancel`, { reason });
-    return response.data;
+  // Get order status history
+  getOrderStatusHistory: async (orderId) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(
+        `${API_URL}/api/orders/${orderId}/status-history`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+  
+  // Mark order as delivered
+  markOrderDelivered: async (orderId) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.put(
+        `${API_URL}/api/orders/${orderId}/deliver`,
+        {},
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+  
+  // Cancel order
+  cancelOrder: async (orderId, reason = 'Cancelled by seller') => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.put(
+        `${API_URL}/api/orders/${orderId}/cancel`,
+        { reason },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
   },
   
   // Process payment for an order
@@ -102,6 +189,43 @@ const orderService = {
   processReturn: async (id, returnStatus, notes) => {
     const response = await api.patch(`/${id}/return`, { status: returnStatus, notes });
     return response.data;
+  },
+  
+  // Add a review for an order item
+  addReview: async (orderId, productId, reviewData) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.post(
+        `${API_URL}/api/orders/${orderId}/products/${productId}/review`,
+        reviewData,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
+  },
+  
+  // Get reviews for an order
+  getOrderReviews: async (orderId) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(
+        `${API_URL}/api/orders/${orderId}/reviews`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error.message;
+    }
   }
 };
 

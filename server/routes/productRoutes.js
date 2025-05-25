@@ -24,22 +24,18 @@ cloudinary.config({
 // Configure multer for basic disk storage
 const modelUpload = multer({
   storage: multer.diskStorage({
-    destination: async function (req, file, cb) {
+    destination: function (req, file, cb) {
       const uploadDir = os.tmpdir();
-      try {
-        // Check if directory exists and is writable
-        try {
-          await fs.access(uploadDir, fs.constants.W_OK);
+      // Ensure the callback is properly called with two arguments
+      fs.access(uploadDir, fs.constants.W_OK, (err) => {
+        if (err) {
+          console.error('Upload directory not accessible:', err);
+          cb(new Error('Upload directory not accessible'));
+        } else {
           console.log('Upload directory exists and is writable:', uploadDir);
-        } catch (error) {
-          console.error('Upload directory not accessible:', error);
-          return cb(new Error('Upload directory not accessible'));
+          cb(null, uploadDir);
         }
-        cb(null, uploadDir);
-      } catch (error) {
-        console.error('Error checking upload directory:', error);
-        cb(error);
-      }
+      });
     },
     filename: function (req, file, cb) {
       const hash = crypto.randomBytes(8).toString('hex');
@@ -50,16 +46,39 @@ const modelUpload = multer({
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
     
-    // Only validate file extension
-    if (!['.usdz', '.glb', '.gltf'].includes(ext)) {
-      cb(new Error('Only USDZ, GLB, or GLTF files are allowed'));
+    // Get platform from request body
+    const platform = req.body.platform;
+    
+    // Log the entire request body and file details for debugging
+    console.log('Request body:', req.body);
+    console.log('File details:', {
+      fieldname: file.fieldname,
+      originalname: file.originalname,
+      encoding: file.encoding,
+      mimetype: file.mimetype
+    });
+    
+    if (!platform || !['ios', 'android'].includes(platform)) {
+      console.error('Invalid platform:', platform);
+      cb(new Error('Platform (ios or android) is required'));
+      return;
+    }
+
+    if (platform === 'ios' && ext !== '.usdz') {
+      cb(new Error('Only USDZ files are allowed for iOS'));
+      return;
+    }
+
+    if (platform === 'android' && !['.glb', '.gltf'].includes(ext)) {
+      cb(new Error('Only GLB or GLTF files are allowed for Android'));
       return;
     }
     
     cb(null, true);
   },
   limits: {
-    fileSize: 100 * 1024 * 1024 // 100MB
+    fileSize: 100 * 1024 * 1024, // 100MB
+    files: 1 // Only allow one file per request
   }
 }).single('file');
 
@@ -85,174 +104,78 @@ const imageUpload = multer({
 // @access  Private/Seller
 router.post('/upload/model', protect, seller, (req, res) => {
   console.log('New model upload request received');
+  console.log('Request headers:', req.headers);
   
+  // Configure multer for model upload
+  const modelStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+      const uploadDir = path.join(process.cwd(), 'uploads', 'models');
+      // Create directory if it doesn't exist
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
+      cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+      cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+    }
+  });
+
+  const modelUpload = multer({
+    storage: modelStorage,
+    limits: { fileSize: 100 * 1024 * 1024 } // 100MB limit
+  }).single('file');
+
   modelUpload(req, res, async (err) => {
-    let tempFilePath = null;
-    
+    if (err) {
+      console.error('Error in file upload middleware:', err);
+      return res.status(400).json({ message: err.message });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    // Get platform from form data
+    const platform = req.body.platform;
+    console.log('Platform from request:', platform);
+
+    if (!platform || !['ios', 'android'].includes(platform)) {
+      // Clean up uploaded file
+      fs.unlink(req.file.path, (err) => {
+        if (err) console.error('Error deleting temp file:', err);
+      });
+      return res.status(400).json({ message: 'Platform (ios or android) is required' });
+    }
+
     try {
-      if (err) {
-        console.error('Error in file upload middleware:', err);
-        return res.status(400).json({ message: err.message });
-      }
-      
-      if (!req.file) {
-        console.error('No file provided');
-        return res.status(400).json({ message: 'No file uploaded' });
-      }
-
-      const platform = req.body.platform;
-      console.log('Platform:', platform);
-      console.log('File details:', {
-        filename: req.file.originalname,
-        size: req.file.size,
-        mimetype: req.file.mimetype
+      // Upload to Cloudinary
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: `ar_models/${platform}`,
+        resource_type: 'raw',
+        use_filename: true,
+        unique_filename: true,
+        timeout: 300000 // 5 minute timeout
       });
 
-      if (!platform) {
-        console.error('Platform not specified');
-        return res.status(400).json({ message: 'Platform is required (ios or android)' });
-      }
+      // Clean up the temporary file
+      fs.unlink(req.file.path, (err) => {
+        if (err) console.error('Error deleting temp file:', err);
+      });
 
-      const ext = path.extname(req.file.originalname).toLowerCase();
-      if (platform === 'ios' && ext !== '.usdz') {
-        return res.status(400).json({ message: 'Only USDZ files are allowed for iOS' });
-      }
-      if (platform === 'android' && !['.glb', '.gltf'].includes(ext)) {
-        return res.status(400).json({ message: 'Only GLB or GLTF files are allowed for Android' });
-      }
-      
-      tempFilePath = req.file.path;
-      
-      try {
-        await fs.promises.access(tempFilePath, fs.constants.R_OK);
-        console.log('Temp file exists and is readable');
-        
-        // Get file stats to verify size
-        const stats = await fs.promises.stat(tempFilePath);
-        console.log('File size:', stats.size);
-        
-        if (stats.size === 0) {
-          throw new Error('File is empty');
-        }
-      } catch (error) {
-        console.error('File access error:', error);
-        return res.status(500).json({ 
-          message: 'File access error',
-          error: error.message 
-        });
-      }
-
-      // Upload to Cloudinary with chunked upload and progress monitoring
-      try {
-        const uploadResult = await new Promise((resolve, reject) => {
-          let uploadProgress = 0;
-          const uploadTimeout = setTimeout(() => {
-            reject(new Error('Upload timeout after 5 minutes'));
-          }, 5 * 60 * 1000); // 5 minute timeout
-
-          const uploadStream = cloudinary.uploader.upload_stream(
-            {
-              folder: `ar_models/${platform}`,
-              resource_type: 'raw',
-              use_filename: true,
-              unique_filename: true,
-              chunk_size: 6000000, // 6MB chunks
-              timeout: 120000, // 2 minute timeout per chunk
-            },
-            (error, result) => {
-              clearTimeout(uploadTimeout);
-              if (error) {
-                console.error('Cloudinary upload error:', error);
-                reject(error);
-              } else {
-                console.log('Cloudinary upload successful:', result);
-                resolve(result);
-              }
-            }
-          );
-
-          // Create read stream with explicit high water mark for better memory handling
-          const fileStream = fs.createReadStream(tempFilePath, {
-            highWaterMark: 1024 * 1024, // 1MB buffer
-          });
-
-          fileStream.on('error', (error) => {
-            clearTimeout(uploadTimeout);
-            console.error('File read error:', error);
-            reject(new Error(`File read error: ${error.message}`));
-          });
-
-          uploadStream.on('error', (error) => {
-            clearTimeout(uploadTimeout);
-            console.error('Upload stream error:', error);
-            reject(new Error(`Upload stream error: ${error.message}`));
-          });
-
-          // Monitor upload progress
-          uploadStream.on('progress', (progress) => {
-            uploadProgress = progress.bytes || 0;
-            console.log(`Upload progress: ${uploadProgress} bytes`);
-          });
-
-          fileStream.pipe(uploadStream);
-        });
-
-        // Clean up temp file
-        try {
-          await fs.promises.unlink(tempFilePath);
-          console.log('Temp file cleaned up successfully');
-        } catch (unlinkError) {
-          console.error('Error cleaning up temp file:', unlinkError);
-        }
-
-        return res.json({
-          secure_url: uploadResult.secure_url,
-          public_id: uploadResult.public_id,
-          platform: platform
-        });
-
-      } catch (uploadError) {
-        console.error('Detailed upload error:', {
-          message: uploadError.message,
-          stack: uploadError.stack,
-          code: uploadError.code,
-          http_code: uploadError.http_code
-        });
-        
-        // Clean up temp file if it exists
-        if (tempFilePath) {
-          try {
-            await fs.promises.unlink(tempFilePath);
-            console.log('Temp file cleaned up after error');
-          } catch (unlinkError) {
-            console.error('Error cleaning up temp file:', unlinkError);
-          }
-        }
-        
-        return res.status(500).json({
-          message: 'Error uploading model to Cloudinary',
-          error: uploadError.message,
-          details: uploadError.http_code ? `HTTP ${uploadError.http_code}` : 'Unknown error'
-        });
-      }
-
+      res.json({
+        secure_url: result.secure_url,
+        public_id: result.public_id,
+        platform: platform
+      });
     } catch (error) {
-      console.error('General error:', error);
-      
-      // Clean up temp file if it exists
-      if (tempFilePath) {
-        try {
-          await fs.promises.unlink(tempFilePath);
-          console.log('Temp file cleaned up after error');
-        } catch (unlinkError) {
-          console.error('Error cleaning up temp file:', unlinkError);
-        }
-      }
-      
-      return res.status(500).json({
-        message: 'Error processing upload',
-        error: error.message
+      console.error('Error uploading to Cloudinary:', error);
+      // Clean up the temporary file
+      fs.unlink(req.file.path, (err) => {
+        if (err) console.error('Error deleting temp file:', err);
       });
+      res.status(500).json({ message: 'Error uploading file to cloud storage' });
     }
   });
 });
@@ -703,6 +626,49 @@ router.get('/usdz-proxy', async (req, res) => {
     if (!res.headersSent) {
       res.status(500).json({ message: 'Error serving USDZ file' });
     }
+  }
+});
+
+// @route   POST /api/products/:id/reviews
+// @desc    Create a product review
+// @access  Private/Seller
+router.post('/:id/reviews', protect, productController.createProductReview);
+
+// @route   POST /api/products/:id/reviews/:reviewId/reply
+// @desc    Add a review reply
+// @access  Private/Seller
+router.post('/:id/reviews/:reviewId/reply', protect, productController.addReviewReply);
+
+// @route   GET /api/products/search
+// @desc    Search products
+// @access  Public
+router.get('/search', async (req, res) => {
+  try {
+    const { q } = req.query;
+    
+    if (!q) {
+      return res.status(400).json({ message: 'Search query is required' });
+    }
+
+    // Create a search regex pattern
+    const searchPattern = new RegExp(q, 'i');
+
+    // Search in title, description, and brand
+    const products = await Product.find({
+      $or: [
+        { title: searchPattern },
+        { description: searchPattern },
+        { brand: searchPattern }
+      ]
+    })
+    .select('title description price images brand category')
+    .populate('category', 'name')
+    .limit(10); // Limit to 10 results for quick search
+
+    res.json({ products });
+  } catch (error) {
+    console.error('Error searching products:', error);
+    res.status(500).json({ message: 'Server error while searching products' });
   }
 });
 
