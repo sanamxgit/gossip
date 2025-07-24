@@ -7,6 +7,7 @@ const ModelPreview = ({ modelUrl, modelType, iosUrl, androidUrl }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [showQR, setShowQR] = useState(false);
   const [error, setError] = useState(null);
+  const [scale, setScale] = useState(0.5);
   const modelViewerRef = useRef(null);
 
   useEffect(() => {
@@ -88,6 +89,14 @@ const ModelPreview = ({ modelUrl, modelType, iosUrl, androidUrl }) => {
   // Use androidUrl or modelUrl for the 3D preview
   const previewUrl = androidUrl || modelUrl;
 
+  const handleScaleChange = (event) => {
+    const newScale = parseFloat(event.target.value);
+    setScale(newScale);
+    if (modelViewerRef.current) {
+      modelViewerRef.current.scale = `${newScale} ${newScale} ${newScale}`;
+    }
+  };
+
     return (
     <div className="model-preview-container">
       <div className="model-viewer-container">
@@ -100,6 +109,11 @@ const ModelPreview = ({ modelUrl, modelType, iosUrl, androidUrl }) => {
           ar
           ar-modes="webxr scene-viewer quick-look"
           ar-scale="fixed"
+          scale={`${scale} ${scale} ${scale}`}
+          min-camera-orbit="auto auto 5%"
+          max-camera-orbit="auto auto 100%"
+          camera-orbit="0deg 75deg 105%"
+          field-of-view="30deg"
           exposure="0.5"
           shadow-intensity="1"
           environment-image="neutral"
@@ -113,6 +127,21 @@ const ModelPreview = ({ modelUrl, modelType, iosUrl, androidUrl }) => {
             <div className="update-bar"></div>
         </div>
         </model-viewer>
+
+        <div className="model-controls">
+          <label htmlFor="scale-slider">Model Size:</label>
+          <input
+            id="scale-slider"
+            type="range"
+            min="0.1"
+            max="2"
+            step="0.1"
+            value={scale}
+            onChange={handleScaleChange}
+            className="scale-slider"
+          />
+          <span className="scale-value">{Math.round(scale * 100)}%</span>
+        </div>
 
         <button className="view-in-room-btn" onClick={handleViewInRoom}>
           <FaCube /> View in Your Room

@@ -83,12 +83,6 @@ const productSchema = new mongoose.Schema({
     type: Number,
     min: [0, 'Original price must be positive']
   },
-  discountPercentage: {
-    type: Number,
-    default: 0,
-    min: 0,
-    max: 100
-  },
   stock: {
     type: Number,
     required: [true, 'Stock quantity is required'],

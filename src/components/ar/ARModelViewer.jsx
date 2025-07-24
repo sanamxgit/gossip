@@ -84,6 +84,12 @@ const ARModelViewer = ({ iosUrl, androidUrl, productName }) => {
         alt={`3D model of ${productName}`}
         ar
         ar-modes="webxr scene-viewer quick-look"
+        ar-scale="fixed"
+        scale="0.5 0.5 0.5"
+        min-camera-orbit="auto auto 5%"
+        max-camera-orbit="auto auto 100%"
+        camera-orbit="0deg 75deg 105%"
+        field-of-view="30deg"
         camera-controls
         auto-rotate
         shadow-intensity="1"
